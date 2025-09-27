@@ -141,6 +141,18 @@ def actualizar_cita(cita_id: int, nombre: str, telefono: str, nota: Optional[str
     pid = crear_o_encontrar_paciente(nombre.strip(), telefono.strip())
     exec_sql("UPDATE citas SET paciente_id=%s, nota=%s WHERE id=%s", (pid, nota, cita_id))
 
+def eliminar_cita(cita_id: int) -> int:
+    """Elimina la cita por ID. Devuelve el # de filas afectadas (0 o 1)."""
+    with conn().cursor() as cur:
+        cur.execute("DELETE FROM citas WHERE id=%s", (cita_id,))
+        n = cur.rowcount or 0
+    # limpia caché para que la tabla se refresque
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    return n
+
 def crear_cita_manual(fecha: date, hora: time, nombre: str, telefono: str, nota: Optional[str] = None):
     pid = crear_o_encontrar_paciente(nombre.strip(), telefono.strip())
     exec_sql(
@@ -290,5 +302,24 @@ else:
                         st.error(f"No se pudo actualizar: {e}")
                 else:
                     st.error("Nombre y teléfono son obligatorios.")
+
+            # --- Eliminar cita seleccionada ---
+            st.divider()
+            st.caption("Eliminar cita seleccionada")
+            cdel1, cdel2 = st.columns([1, 1])
+            with cdel1:
+                confirm_del = st.checkbox("Confirmar eliminación", key="confirm_del")
+            with cdel2:
+                if st.button("🗑️ Eliminar", disabled=not confirm_del, key="btn_del"):
+                    try:
+                        n = eliminar_cita(int(cid))
+                        if n:
+                            st.success("Cita eliminada.")
+                        else:
+                            st.info("La cita ya no existía.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No se pudo eliminar: {e}")
+
 
 
