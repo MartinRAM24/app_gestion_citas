@@ -23,6 +23,49 @@ BLOQUEO_DIAS_MIN: int = 2          # hoy y mañana bloqueados; pacientes agendan
 # =========================
 NEON_URL = st.secrets.get("NEON_DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
 
+# --- Auth de admin (Carmen) ---
+ADMIN_USER = os.getenv("ADMIN_USER") or st.secrets.get("CARMEN_USER", "carmen")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or st.secrets.get("CARMEN_PASSWORD")
+
+def require_admin_auth() -> bool:
+    """Muestra formulario de login para Carmen y guarda sesión en st.session_state."""
+    if "admin_authed" not in st.session_state:
+        st.session_state.admin_authed = False
+
+    # Si ya está logueada, muestra estado y botón de salir
+    if st.session_state.admin_authed:
+        with st.sidebar:
+            st.success(f"Sesión: {st.session_state.get('admin_user','Carmen')}")
+            if st.button("Cerrar sesión"):
+                st.session_state.admin_authed = False
+                st.session_state.admin_user = None
+                st.rerun()
+        return True
+
+    # Formulario de login
+    st.subheader("🔐 Acceso restringido")
+    with st.form("login_admin"):
+        u = st.text_input("Usuario", key="admin_user_input")
+        p = st.text_input("Contraseña", type="password", key="admin_pass_input")
+        ok = st.form_submit_button("Entrar")
+
+    if ok:
+        if not ADMIN_USER or not ADMIN_PASSWORD:
+            st.error("Falta configurar CARMEN_USER y CARMEN_PASSWORD en Secrets.")
+            return False
+        if u == ADMIN_USER and p == ADMIN_PASSWORD:
+            st.session_state.admin_authed = True
+            st.session_state.admin_user = u
+            st.success("Bienvenida, Carmen.")
+            st.rerun()
+        else:
+            st.error("Usuario o contraseña incorrectos.")
+    else:
+        st.info("Ingresa tus credenciales para acceder al panel.")
+
+    return False
+
+
 @st.cache_resource
 def conn():
     if not NEON_URL:
@@ -229,6 +272,11 @@ if vista == "📅 Agendar (Pacientes)":
 # ====== Vista: Carmen (Admin) ======
 else:
     st.header("🧑‍⚕️ Panel de Carmen")
+
+    # 🔐 Requiere login
+    if not require_admin_auth():
+        st.stop()  # no renderiza nada del panel hasta que inicie sesión
+
 
     colf, colr = st.columns([1, 2], gap="large")
 
