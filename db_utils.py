@@ -3,6 +3,7 @@ import os
 import psycopg
 from datetime import datetime, date, time, timedelta
 from zoneinfo import ZoneInfo
+from psycopg import errors
 
 MX = ZoneInfo("America/Mexico_City")
 
@@ -53,10 +54,46 @@ CREATE INDEX IF NOT EXISTS ix_citas_fecha ON citas(fecha);
 CREATE INDEX IF NOT EXISTS ix_citas_prof_fecha ON citas(profesional, fecha);
 """
 
+# db_utils.py (solo esta función)
+  # importa para capturar DuplicateObject
+
 def ensure_schema():
     with conn().cursor() as cur:
-        for stmt in [s.strip() for s in DDL.split(";\n") if s.strip()]:
-            cur.execute(stmt + (";" if not stmt.endswith(";") else ""))
+        # 1) tabla
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS citas (
+          id BIGSERIAL PRIMARY KEY,
+          paciente_nombre TEXT NOT NULL,
+          paciente_telefono TEXT,
+          motivo TEXT,
+          profesional TEXT NOT NULL DEFAULT 'Carmen',
+          fecha DATE NOT NULL,
+          hora TIME NOT NULL,
+          estado TEXT NOT NULL DEFAULT 'reservada',
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+        """)
+
+        # 2) índices
+        cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_citas_slot
+        ON citas (profesional, fecha, hora)
+        WHERE estado IN ('reservada','atendida');
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_citas_fecha ON citas(fecha);")
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_citas_prof_fecha ON citas(profesional, fecha);")
+
+        # 3) constraint “pasado mañana”
+        try:
+            cur.execute("""
+            ALTER TABLE citas
+            ADD CONSTRAINT chk_fecha_minima
+            CHECK (fecha >= CURRENT_DATE + INTERVAL '2 days');
+            """)
+        except errors.DuplicateObject:
+            # ya existe: ignorar
+            pass
+
 
 def slots_del_dia(fecha: date, inicio: time = time(9,0),
                   fin: time = time(19,0), paso_min: int = 30):
