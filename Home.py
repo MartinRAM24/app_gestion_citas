@@ -167,5 +167,6 @@ if vista == "📅 Agendar (Pacientes)":
     if not libres:
         st.info("No hay horarios libres en este día. Prueba con otra fecha.")
     else:
-        slot_sel = st.selectbox("Horario", [t.strftime("%H:%M") for]()_
+        slot_sel = st.selectbox("Horario", [t.strftime("%H:%M") for t in libres])
+
 
