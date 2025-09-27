@@ -4,6 +4,13 @@ from app_gestion_citas.db_utils import (
     generar_slots, slots_ocupados, agendar_cita, ensure_schema, is_fecha_permitida
 )
 from app_gestion_citas.constants import BLOQUEO_DIAS_MIN
+# --- FIX para imports en Streamlit Cloud desde /pages ---
+import os, sys
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))  # sube de /pages a raíz
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+# ---------------------------------------------------------
+
 
 st.set_page_config(page_title="Agendar — Pacientes", page_icon="📅", layout="wide")
 ensure_schema()

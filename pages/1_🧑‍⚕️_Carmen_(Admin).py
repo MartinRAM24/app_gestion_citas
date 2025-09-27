@@ -3,7 +3,14 @@ from datetime import date, datetime
 from app_gestion_citas.db_utils import (
     ensure_schema, generar_slots, citas_por_dia, crear_cita_manual, actualizar_cita
 )
-from app_gestion_citas.constants import BLOQUEO_DIAS_MIN
+
+# --- FIX para imports en Streamlit Cloud desde /pages ---
+import os, sys
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))  # sube de /pages a raíz
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+# ---------------------------------------------------------
+
 
 st.set_page_config(page_title="Carmen — Admin", page_icon="🧑‍⚕️", layout="wide")
 ensure_schema()
