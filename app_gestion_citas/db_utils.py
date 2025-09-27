@@ -1,9 +1,37 @@
 import os
+import psycopg
+import pandas as pd
+import streamlit as st
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-# importa tu constante (ajusta el path si este archivo está en otro paquete)
 from app_gestion_citas.constants import BLOQUEO_DIAS_MIN
+
+# =====================
+# Conexión a Neon / Postgres
+# =====================
+NEON_URL = st.secrets.get("NEON_DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
+
+@st.cache_resource
+def conn():
+    if not NEON_URL:
+        st.stop()  # fuerza a configurar la URL
+    return psycopg.connect(NEON_URL, autocommit=True)
+
+def exec_sql(q_ps: str, p: tuple = ()):
+    """Ejecuta un SQL tipo INSERT/UPDATE/DDL"""
+    with conn().cursor() as cur:
+        cur.execute(q_ps, p)
+
+@st.cache_data(show_spinner=False)
+def query_df(q_ps: str, p: tuple = ()):
+    """Ejecuta un SELECT y devuelve un DataFrame"""
+    with conn().cursor() as cur:
+        cur.execute(q_ps, p)
+        cols = [c.name for c in cur.description]
+        rows = cur.fetchall()
+    return pd.DataFrame(rows, columns=cols)
+
 
 # estas funciones deben existir en el mismo archivo o importarse
 # from app_gestion_citas.db_utils import exec_sql, query_df
