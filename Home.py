@@ -146,7 +146,9 @@ st.title("🩺 Gestión de Citas — Carmen")
 with st.sidebar:
     vista = st.radio("Navegación", ["📅 Agendar (Pacientes)", "🧑‍⚕️ Carmen (Admin)"])
 
+# ====== Vista: Pacientes ======
 if vista == "📅 Agendar (Pacientes)":
+
     st.header("📅 Agenda tu cita")
 
     min_day = date.today() + timedelta(days=BLOQUEO_DIAS_MIN)
@@ -156,17 +158,44 @@ if vista == "📅 Agendar (Pacientes)":
         min_value=min_day
     )
 
+    # Validación de fecha
     if not is_fecha_permitida(fecha):
         st.error("Solo puedes agendar a partir del tercer día.")
         st.stop()
 
+    # Carga de horarios
     ocupados = slots_ocupados(fecha)
-
-    # Mostrar SOLO libres para evitar confusión
     libres = [t for t in generar_slots(fecha) if t not in ocupados]
-    if not libres:
-        st.info("No hay horarios libres en este día. Prueba con otra fecha.")
+
+    # Selector de horario (si no hay, mostramos un placeholder)
+    if libres:
+        opciones_horas = [t.strftime("%H:%M") for t in libres]
+        slot_sel = st.selectbox("Horario disponible", opciones_horas)
     else:
-        slot_sel = st.selectbox("Horario", [t.strftime("%H:%M") for t in libres])
+        slot_sel = None
+        st.warning("No hay horarios libres en este día. Prueba con otra fecha.")
+
+    # Campos SIEMPRE visibles
+    nombre = st.text_input("Tu nombre")
+    telefono = st.text_input("Tu teléfono")
+    nota = st.text_area("Motivo o nota (opcional)")
+
+    # Botón (deshabilitado si no hay horarios)
+    confirmar = st.button("📝 Confirmar cita", disabled=(slot_sel is None))
+
+    if confirmar:
+        if not (nombre.strip() and telefono.strip()):
+            st.error("Nombre y teléfono son obligatorios.")
+        elif slot_sel is None:
+            st.error("No hay un horario disponible seleccionado.")
+        else:
+            try:
+                hora = datetime.strptime(slot_sel, "%H:%M").time()
+                agendar_cita(fecha, hora, nombre, telefono, nota or None)
+                st.success("¡Cita agendada! Te esperamos ✨")
+                st.balloons()
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo agendar: {e}")
 
 
