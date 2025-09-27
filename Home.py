@@ -151,7 +151,7 @@ def crear_cita_manual(fecha: date, hora: time, nombre: str, telefono: str, nota:
 # =========================
 # UI
 # =========================
-ensure_schema()
+#ensure_schema()
 
 st.title("🩺 Gestión de Citas — Carmen")
 
