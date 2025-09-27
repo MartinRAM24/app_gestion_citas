@@ -180,5 +180,115 @@ if vista == "📅 Agendar (Pacientes)":
     libres = [t for t in generar_slots(fecha) if t not in ocupados]
 
     # Selector de horario (si no hay, mostramos un placeholder)
-    if libre
+    if libres:
+        opciones_horas = [t.strftime("%H:%M") for t in libres]
+        slot_sel = st.selectbox("Horario disponible", opciones_horas)
+    else:
+        slot_sel = None
+        st.warning("No hay horarios libres en este día. Prueba con otra fecha.")
+
+    # Campos SIEMPRE visibles
+    nombre = st.text_input("Tu nombre")
+    telefono = st.text_input("Tu teléfono")
+    nota = st.text_area("Motivo o nota (opcional)")
+
+    # Botón (deshabilitado si no hay horarios)
+    confirmar = st.button("📝 Confirmar cita", disabled=(slot_sel is None))
+
+    if confirmar:
+        if not (nombre.strip() and telefono.strip()):
+            st.error("Nombre y teléfono son obligatorios.")
+        elif slot_sel is None:
+            st.error("No hay un horario disponible seleccionado.")
+        else:
+            try:
+                hora = datetime.strptime(slot_sel, "%H:%M").time()
+                agendar_cita(fecha, hora, nombre, telefono, nota or None)
+                st.success("¡Cita agendada! Te esperamos ✨")
+                st.balloons()
+                try:
+                    st.cache_data.clear()
+                except Exception:
+                    pass
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo agendar: {e}")
+
+# ====== Vista: Carmen (Admin) ======
+else:
+    st.header("🧑‍⚕️ Panel de Carmen")
+
+    colf, colr = st.columns([1, 2], gap="large")
+
+    with colf:
+        fecha_sel = st.date_input("Día", value=date.today(), key="fecha_admin")
+        st.caption("Puedes crear citas manualmente (sin restricción de 3 días).")
+
+        slot = st.selectbox("Hora", [t.strftime("%H:%M") for t in generar_slots(fecha_sel)], key="hora_admin")
+        nombre = st.text_input("Nombre paciente", key="nombre_admin")
+        tel = st.text_input("Teléfono", key="tel_admin")
+        nota = st.text_area("Nota (opcional)", key="nota_admin")
+
+        if st.button("➕ Crear cita", key="crear_admin"):
+            if nombre.strip() and tel.strip():
+                try:
+                    crear_cita_manual(
+                        fecha_sel,
+                        datetime.strptime(slot, "%H:%M").time(),
+                        nombre,
+                        tel,
+                        nota or None
+                    )
+                    st.success("Cita creada.")
+                    try:
+                        st.cache_data.clear()
+                    except Exception:
+                        pass
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"No se pudo crear la cita: {e}")
+            else:
+                st.error("Nombre y teléfono son obligatorios.")
+
+    with colr:
+        st.subheader(f"Citas para {fecha_sel.strftime('%d-%m-%Y')}")
+
+        if st.button("🔄 Actualizar lista", key="refresh_admin"):
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            st.rerun()
+
+        df = citas_por_dia(fecha_sel)
+        if df.empty:
+            st.info("No hay citas aún.")
+        else:
+            st.dataframe(df, use_container_width=True)
+            st.divider()
+            st.caption("Editar cita")
+
+            ids = df["id"].astype(int).tolist()
+            cid = st.selectbox("ID cita", ids, key="cid_admin")
+            r = df[df.id == cid].iloc[0]
+
+            nombre_e = st.text_input("Nombre", r["nombre"] or "", key="nombre_edit")
+            tel_e    = st.text_input("Teléfono", r["telefono"] or "", key="tel_edit")
+            nota_e   = st.text_area("Nota", r["nota"] or "", key="nota_edit")
+
+            if st.button("💾 Guardar cambios", key="save_edit"):
+                if nombre_e.strip() and tel_e.strip():
+                    try:
+                        actualizar_cita(int(cid), nombre_e, tel_e, nota_e or None)
+                        st.success("Actualizado.")
+                        try:
+                            st.cache_data.clear()
+                        except Exception:
+                            pass
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No se pudo actualizar: {e}")
+                else:
+                    st.error("Nombre y teléfono son obligatorios.")
+
 
