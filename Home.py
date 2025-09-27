@@ -33,8 +33,13 @@ def conn():
 def exec_sql(q_ps: str, p: tuple = ()):
     with conn().cursor() as cur:
         cur.execute(q_ps, p)
+    # Limpia caché de SELECTs para ver cambios al instante
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=5)  # TTL para evitar resultados viejos
 def query_df(q_ps: str, p: tuple = ()):
     with conn().cursor() as cur:
         cur.execute(q_ps, p)
@@ -88,18 +93,25 @@ def is_fecha_permitida(fecha: date) -> bool:
     return fecha >= (hoy + timedelta(days=BLOQUEO_DIAS_MIN))
 
 def crear_o_encontrar_paciente(nombre: str, telefono: str) -> int:
+    # ¿ya existe?
     df = query_df(
         "SELECT id FROM pacientes WHERE nombre = %s AND telefono = %s LIMIT 1",
         (nombre, telefono),
     )
     if not df.empty:
         return int(df.iloc[0]["id"])
-    exec_sql("INSERT INTO pacientes(nombre, telefono) VALUES (%s, %s)", (nombre, telefono))
-    df2 = query_df(
-        "SELECT id FROM pacientes WHERE nombre = %s AND telefono = %s ORDER BY id DESC LIMIT 1",
-        (nombre, telefono),
-    )
-    return int(df2.iloc[0]["id"])
+    # crear y devolver id de forma segura
+    with conn().cursor() as cur:
+        cur.execute(
+            "INSERT INTO pacientes(nombre, telefono) VALUES (%s, %s) RETURNING id",
+            (nombre, telefono),
+        )
+        new_id = cur.fetchone()[0]
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    return int(new_id)
 
 def slots_ocupados(fecha: date) -> set:
     df = query_df("SELECT hora FROM citas WHERE fecha = %s ORDER BY hora", (fecha,))
@@ -149,73 +161,6 @@ with st.sidebar:
 # ====== Vista: Pacientes ======
 if vista == "📅 Agendar (Pacientes)":
 
-    else:  # 🧑‍⚕️ Carmen (Admin)
-    st.header("🧑‍⚕️ Panel de Carmen")
-
-    colf, colr = st.columns([1, 2], gap="large")
-
-    with colf:
-        fecha_sel = st.date_input("Día", value=date.today())
-        st.caption("Puedes crear citas manualmente (sin restricción de 3 días).")
-
-        slot = st.selectbox("Hora", [t.strftime("%H:%M") for t in generar_slots(fecha_sel)])
-        nombre = st.text_input("Nombre paciente", key="nombre_admin")
-        tel = st.text_input("Teléfono", key="tel_admin")
-        nota = st.text_area("Nota (opcional)", key="nota_admin")
-
-        if st.button("➕ Crear cita", key="crear_admin"):
-            if nombre.strip() and tel.strip():
-                try:
-                    crear_cita_manual(
-                        fecha_sel,
-                        datetime.strptime(slot, "%H:%M").time(),
-                        nombre,
-                        tel,
-                        nota or None
-                    )
-                    st.success("Cita creada.")
-                    st.cache_data.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"No se pudo crear la cita: {e}")
-            else:
-                st.error("Nombre y teléfono son obligatorios.")
-
-    with colr:
-        st.subheader(f"Citas para {fecha_sel.strftime('%d-%m-%Y')}")
-
-        if st.button("🔄 Actualizar lista", key="refresh_admin"):
-            st.cache_data.clear()
-            st.rerun()
-
-        df = citas_por_dia(fecha_sel)
-        if df.empty:
-            st.info("No hay citas aún.")
-        else:
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            st.divider()
-            st.caption("Editar cita")
-
-            ids = df["id"].astype(int).tolist()
-            cid = st.selectbox("ID cita", ids, key="cid_admin")
-            r = df[df.id == cid].iloc[0]
-
-            nombre_e = st.text_input("Nombre", r["nombre"] or "", key="nombre_edit")
-            tel_e = st.text_input("Teléfono", r["telefono"] or "", key="tel_edit")
-            nota_e = st.text_area("Nota", r["nota"] or "", key="nota_edit")
-
-            if st.button("💾 Guardar cambios", key="save_edit"):
-                if nombre_e.strip() and tel_e.strip():
-                    try:
-                        actualizar_cita(int(cid), nombre_e, tel_e, nota_e or None)
-                        st.success("Actualizado.")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"No se pudo actualizar: {e}")
-                else:
-                    st.error("Nombre y teléfono son obligatorios.")
-
     st.header("📅 Agenda tu cita")
 
     min_day = date.today() + timedelta(days=BLOQUEO_DIAS_MIN)
@@ -235,34 +180,5 @@ if vista == "📅 Agendar (Pacientes)":
     libres = [t for t in generar_slots(fecha) if t not in ocupados]
 
     # Selector de horario (si no hay, mostramos un placeholder)
-    if libres:
-        opciones_horas = [t.strftime("%H:%M") for t in libres]
-        slot_sel = st.selectbox("Horario disponible", opciones_horas)
-    else:
-        slot_sel = None
-        st.warning("No hay horarios libres en este día. Prueba con otra fecha.")
-
-    # Campos SIEMPRE visibles
-    nombre = st.text_input("Tu nombre")
-    telefono = st.text_input("Tu teléfono")
-    nota = st.text_area("Motivo o nota (opcional)")
-
-    # Botón (deshabilitado si no hay horarios)
-    confirmar = st.button("📝 Confirmar cita", disabled=(slot_sel is None))
-
-    if confirmar:
-        if not (nombre.strip() and telefono.strip()):
-            st.error("Nombre y teléfono son obligatorios.")
-        elif slot_sel is None:
-            st.error("No hay un horario disponible seleccionado.")
-        else:
-            try:
-                hora = datetime.strptime(slot_sel, "%H:%M").time()
-                agendar_cita(fecha, hora, nombre, telefono, nota or None)
-                st.success("¡Cita agendada! Te esperamos ✨")
-                st.balloons()
-                st.rerun()
-            except Exception as e:
-                st.error(f"No se pudo agendar: {e}")
-
+    if libre
 
