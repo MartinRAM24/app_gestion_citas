@@ -559,36 +559,45 @@ else:
         df = citas_por_dia(fecha_sel)
 
         # Construir tabla completa por horarios (incluye libres)
-        # Normalizamos a string HH:MM para evitar choques de tipo al hacer merge
-        todos_slots = pd.DataFrame({"hora": generar_slots(fecha_sel)})
-        todos_slots["hora_str"] = todos_slots["hora"].map(lambda t: t.strftime("%H:%M"))
+        slots_list = generar_slots(fecha_sel)
 
-        df_m = df.copy()
+        if not slots_list:
+            # Día no laborable (domingo) → no hay slots para mostrar
+            st.info("Día no laborable (domingo). No hay horarios disponibles.")
+            if df.empty:
+                st.info("Tampoco hay citas registradas en este día.")
+            else:
+                # Si hubiera citas guardadas previamente, muéstralas sin fusionar con slots
+                st.dataframe(
+                    df[["id_cita", "paciente_id", "nombre", "telefono", "fecha", "hora", "nota"]],
+                    use_container_width=True
+                )
+        else:
+            # Hay slots → armamos la tabla unificada de horarios (libres/ocupados)
+            todos_slots = pd.DataFrame({"hora": slots_list})
+            todos_slots["hora_str"] = todos_slots["hora"].map(lambda t: t.strftime("%H:%M")).astype(str)
 
-        # Asegura que exista la columna 'hora' (por si viniera vacío sin columnas, raro pero posible)
-        if "hora" not in df_m.columns:
-            df_m["hora"] = pd.NaT
+            df_m = df.copy()
+            if "hora" not in df_m.columns:
+                df_m["hora"] = pd.NaT
+            df_m["hora_str"] = df_m["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None).astype(str)
 
-        # SIEMPRE crea 'hora_str', incluso si df_m está vacío
-        df_m["hora_str"] = df_m["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
+            df_show = todos_slots.merge(df_m, on="hora_str", how="left")
 
-        df_show = todos_slots.merge(df_m, on="hora_str", how="left")
+            # Orden y columnas
+            cols = ["id_cita", "paciente_id", "nombre", "telefono", "fecha", "hora", "nota"]
+            for c in cols:
+                if c not in df_show.columns:
+                    df_show[c] = None
 
-        # Orden y columnas
-        cols = ["id_cita", "paciente_id", "nombre", "telefono", "fecha", "hora", "nota"]
-        for c in cols:
-            if c not in df_show.columns:
-                df_show[c] = None
+            # Estado y visualización (mostrar 'hora_str' primero)
+            df_show["estado"] = df_show["id_cita"].apply(lambda x: "✅ libre" if pd.isna(x) else "🟡 ocupado")
+            df_show = df_show.rename(columns={"hora_str": "hora_txt"})
 
-        # Columna estado y presentación
-        df_show["estado"] = df_show["id_cita"].apply(lambda x: "✅ libre" if pd.isna(x) else "🟡 ocupado")
-
-        # Mostramos 'hora_str' como 'hora' legible primero
-        df_show = df_show.rename(columns={"hora_str": "hora_txt"})
-        st.dataframe(
-            df_show[["hora_txt", "estado"] + cols],
-            use_container_width=True
-        )
+            st.dataframe(
+                df_show[["hora_txt", "estado"] + cols],
+                use_container_width=True
+            )
 
         # --- Edición / eliminación solo si hay alguna ocupada ---
         if df.empty:
