@@ -7,7 +7,8 @@ import psycopg
 import streamlit as st
 import re
 import bcrypt
-from psycopg import errors as pg_errors  # para capturar UniqueViolation, etc.
+from psycopg import errors as pg_errors
+# para capturar UniqueViolation, etc.
 
 # =========================
 # Configuración base
@@ -143,6 +144,49 @@ def ensure_schema():
 # =========================
 # Lógica de agenda
 # =========================
+
+def _fmt_fecha(v) -> str:
+    try:
+        return pd.to_datetime(v).strftime('%d-%m-%Y')
+    except Exception:
+        return str(v)
+
+def _fmt_hora(v) -> str:
+    try:
+        return pd.to_datetime(str(v)).strftime('%H:%M')
+    except Exception:
+        return str(v)
+
+def proxima_cita_paciente(paciente_id: int):
+    """Próxima cita (>= ahora) para un paciente por ID."""
+    return query_df(
+        """
+        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota
+        FROM citas c
+        WHERE c.paciente_id = %s
+          AND (c.fecha > CURRENT_DATE OR (c.fecha = CURRENT_DATE AND c.hora >= CURRENT_TIME))
+        ORDER BY c.fecha, c.hora
+        LIMIT 1
+        """,
+        (paciente_id,),
+    )
+
+def proxima_cita_por_telefono(telefono: str):
+    """Próxima cita (>= ahora) usando el teléfono (normalizado). Útil si no tienes login de paciente."""
+    tel = normalize_tel(telefono) if 'normalize_tel' in globals() else telefono.strip()
+    return query_df(
+        """
+        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota
+        FROM citas c
+        JOIN pacientes p ON p.id = c.paciente_id
+        WHERE p.telefono = %s
+          AND (c.fecha > CURRENT_DATE OR (c.fecha = CURRENT_DATE AND c.hora >= CURRENT_TIME))
+        ORDER BY c.fecha, c.hora
+        LIMIT 1
+        """,
+        (tel,),
+    )
+
 def _get_paciente() -> dict | None:
     p = st.session_state.get("patient")
     if isinstance(p, dict) and "id" in p:
@@ -354,8 +398,6 @@ if vista == "📅 Agendar (Pacientes)":
         st.session_state.patient = None
         st.rerun()
 
-    # ... (resto de tu flujo de selección de fecha/hora/nota y confirmación)
-
 
     min_day = date.today() + timedelta(days=BLOQUEO_DIAS_MIN)
     fecha = st.date_input("Elige el día (disponible desde el tercer día)", value=min_day, min_value=min_day)
@@ -397,6 +439,33 @@ if vista == "📅 Agendar (Pacientes)":
             st.error("Ya tienes una cita ese día. Solo se permite una por día.")
         except Exception as e:
             st.error(f"No se pudo agendar: {e}")
+
+        # -------------------------------
+        # 📌 Tu próxima cita (al fondo)
+        # -------------------------------
+        st.divider()
+        st.subheader("📌 Tu próxima cita")
+
+        next_df = None
+        # Si tienes login de paciente en session_state (opcional)
+        if st.session_state.get("patient_authed") and st.session_state.get("patient"):
+            pid = st.session_state["patient"]["id"]
+            next_df = proxima_cita_paciente(int(pid))
+        else:
+            # Sin login: intentamos por el teléfono escrito en el formulario
+            if telefono.strip():
+                next_df = proxima_cita_por_telefono(telefono.strip())
+
+        if next_df is None or next_df.empty:
+            st.info("Aún no tienes una cita próxima.")
+        else:
+            r = next_df.iloc[0]
+            fecha_str = _fmt_fecha(r["fecha"])
+            hora_str = _fmt_hora(r["hora"])
+            nota_str = r.get("nota") or "—"
+            st.success(
+                f"**Folio:** {int(r['id_cita'])}  \n**Fecha:** {fecha_str}  \n**Hora:** {hora_str}  \n**Nota:** {nota_str}")
+
 
 
 # ====== Vista: Carmen (Admin) ======
