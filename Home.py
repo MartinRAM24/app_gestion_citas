@@ -2,10 +2,12 @@
 import os
 from typing import Optional
 from datetime import date, datetime, timedelta, time
-
 import pandas as pd
 import psycopg
 import streamlit as st
+import re
+import bcrypt
+from psycopg import errors as pg_errors  # para capturar UniqueViolation, etc.
 
 # =========================
 # Configuración base
@@ -22,6 +24,27 @@ BLOQUEO_DIAS_MIN: int = 2          # hoy y mañana bloqueados; pacientes agendan
 # Conexión a Neon / Postgres
 # =========================
 NEON_URL = st.secrets.get("NEON_DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
+
+
+# (opcional) pepper para el hash; añade PASSWORD_PEPPER en Secrets si quieres
+PEPPER = (st.secrets.get("PASSWORD_PEPPER") or os.getenv("PASSWORD_PEPPER") or "").encode()
+
+def normalize_tel(t: str) -> str:
+    # quita espacios y guiones; usaremos el normalizado como teléfono
+    return re.sub(r'[-\s]+', '', t.strip().lower())
+
+def _peppered(pw: str) -> bytes:
+    return (pw.encode() + PEPPER) if PEPPER else pw.encode()
+
+def hash_password(pw: str) -> str:
+    return bcrypt.hashpw(_peppered(pw), bcrypt.gensalt()).decode()
+
+def check_password(pw: str, pw_hash: str) -> bool:
+    try:
+        return bcrypt.checkpw(_peppered(pw), pw_hash.encode())
+    except Exception:
+        return False
+
 
 # --- Auth de admin (Carmen) ---
 ADMIN_USER = os.getenv("ADMIN_USER") or st.secrets.get("CARMEN_USER", "carmen")
@@ -120,6 +143,52 @@ def ensure_schema():
 # =========================
 # Lógica de agenda
 # =========================
+def registrar_paciente(nombre: str, telefono: str, password: str) -> int:
+    tel = normalize_tel(telefono)
+    pw_hash = hash_password(password)
+    with conn().cursor() as cur:
+        cur.execute(
+            "INSERT INTO pacientes (nombre, telefono, password_hash) VALUES (%s, %s, %s) RETURNING id",
+            (nombre.strip(), tel, pw_hash),
+        )
+        pid = cur.fetchone()[0]
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    return int(pid)
+
+def login_paciente(telefono: str, password: str) -> Optional[dict]:
+    tel = normalize_tel(telefono)
+    df = query_df(
+        "SELECT id, nombre, telefono, password_hash FROM pacientes WHERE telefono = %s LIMIT 1",
+        (tel,),
+    )
+    if df.empty:
+        return None
+    row = df.iloc[0]
+    pw_hash = row.get("password_hash")
+    if pw_hash and check_password(password, str(pw_hash)):
+        return {"id": int(row["id"]), "nombre": row["nombre"], "telefono": row["telefono"]}
+    return None
+
+def ya_tiene_cita_en_dia(paciente_id: int, fecha: date) -> bool:
+    df = query_df("SELECT 1 FROM citas WHERE paciente_id = %s AND fecha = %s LIMIT 1", (paciente_id, fecha))
+    return not df.empty
+
+def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, nota: Optional[str] = None):
+    assert is_fecha_permitida(fecha), "La fecha seleccionada no está permitida (mínimo día 3)."
+    if ya_tiene_cita_en_dia(paciente_id, fecha):
+        raise ValueError("Ya tienes una cita ese día. Solo se permite una por día.")
+    try:
+        exec_sql(
+            "INSERT INTO citas(fecha, hora, paciente_id, nota) VALUES (%s, %s, %s, %s)",
+            (fecha, hora, paciente_id, nota),
+        )
+    except pg_errors.UniqueViolation:
+        # por si lo bloquea el constraint de BD
+        raise ValueError("Ya tienes una cita ese día. Solo se permite una por día.")
+
 def generar_slots(fecha: date):
     """Genera horarios cada PASO_MIN entre HORA_INICIO y HORA_FIN."""
     slots = []
@@ -136,18 +205,14 @@ def is_fecha_permitida(fecha: date) -> bool:
     return fecha >= (hoy + timedelta(days=BLOQUEO_DIAS_MIN))
 
 def crear_o_encontrar_paciente(nombre: str, telefono: str) -> int:
-    # ¿ya existe?
-    df = query_df(
-        "SELECT id FROM pacientes WHERE nombre = %s AND telefono = %s LIMIT 1",
-        (nombre, telefono),
-    )
+    tel = normalize_tel(telefono)
+    df = query_df("SELECT id FROM pacientes WHERE telefono = %s LIMIT 1", (tel,))
     if not df.empty:
         return int(df.iloc[0]["id"])
-    # crear y devolver id de forma segura
     with conn().cursor() as cur:
         cur.execute(
             "INSERT INTO pacientes(nombre, telefono) VALUES (%s, %s) RETURNING id",
-            (nombre, telefono),
+            (nombre.strip(), tel),
         )
         new_id = cur.fetchone()[0]
     try:
@@ -171,7 +236,13 @@ def agendar_cita(fecha: date, hora: time, nombre: str, telefono: str, nota: Opti
 def citas_por_dia(fecha: date):
     return query_df(
         """
-        SELECT c.id, c.fecha, c.hora, p.nombre, p.telefono, c.nota
+        SELECT c.id AS id_cita,
+               c.fecha,
+               c.hora,
+               p.id   AS paciente_id,
+               p.nombre,
+               p.telefono,
+               c.nota
         FROM citas c
         LEFT JOIN pacientes p ON p.id = c.paciente_id
         WHERE c.fecha = %s
@@ -179,6 +250,7 @@ def citas_por_dia(fecha: date):
         """,
         (fecha,),
     )
+
 
 def actualizar_cita(cita_id: int, nombre: str, telefono: str, nota: Optional[str]):
     pid = crear_o_encontrar_paciente(nombre.strip(), telefono.strip())
@@ -218,23 +290,74 @@ if vista == "📅 Agendar (Pacientes)":
 
     st.header("📅 Agenda tu cita")
 
-    min_day = date.today() + timedelta(days=BLOQUEO_DIAS_MIN)
-    fecha = st.date_input(
-        "Elige el día (disponible desde el tercer día)",
-        value=min_day,
-        min_value=min_day
-    )
+    # ---- Login / Registro ----
+    if "patient_authed" not in st.session_state:
+        st.session_state.patient_authed = False
+        st.session_state.patient = None
 
-    # Validación de fecha
+    if not st.session_state.patient_authed:
+        modo = st.radio("¿Tienes cuenta?", ["Iniciar sesión", "Registrarme"], horizontal=True)
+        if modo == "Iniciar sesión":
+            with st.form("login_paciente"):
+                tel = st.text_input("Teléfono")
+                pw  = st.text_input("Contraseña", type="password")
+                ok  = st.form_submit_button("Entrar")
+            if ok:
+                user = login_paciente(tel, pw)
+                if user:
+                    st.session_state.patient_authed = True
+                    st.session_state.patient = user
+                    st.success(f"Bienvenid@, {user['nombre']}")
+                    st.rerun()
+                else:
+                    st.error("Teléfono o contraseña incorrectos.")
+            else:
+                st.info("Inicia sesión o regístrate para continuar.")
+            st.stop()
+        else:
+            with st.form("registro_paciente"):
+                nombre = st.text_input("Nombre completo")
+                tel    = st.text_input("Teléfono")
+                pw1    = st.text_input("Contraseña", type="password")
+                pw2    = st.text_input("Repite tu contraseña", type="password")
+                ok     = st.form_submit_button("Crear cuenta")
+            if ok:
+                if not (nombre.strip() and tel.strip() and pw1 and pw2):
+                    st.error("Todos los campos son obligatorios.")
+                    st.stop()
+                if pw1 != pw2:
+                    st.error("Las contraseñas no coinciden.")
+                    st.stop()
+                try:
+                    pid = registrar_paciente(nombre, tel, pw1)
+                    st.session_state.patient_authed = True
+                    st.session_state.patient = {"id": pid, "nombre": nombre.strip(), "telefono": normalize_tel(tel)}
+                    st.success("Cuenta creada.")
+                    st.rerun()
+                except pg_errors.UniqueViolation:
+                    st.error("Ese teléfono ya está registrado.")
+                except Exception as e:
+                    st.error(f"No se pudo crear la cuenta: {e}")
+                st.stop()
+
+    # ---- Agendar (solo fecha/hora/nota) ----
+    paciente = st.session_state.patient
+    st.success(f"Agendando como: {paciente['nombre']} — {paciente['telefono']} (ID {paciente['id']})")
+    if st.button("Cerrar sesión paciente", key="logout_paciente"):
+        st.session_state.patient_authed = False
+        st.session_state.patient = None
+        st.rerun()
+
+    min_day = date.today() + timedelta(days=BLOQUEO_DIAS_MIN)
+    fecha = st.date_input("Elige el día (disponible desde el tercer día)", value=min_day, min_value=min_day)
+
     if not is_fecha_permitida(fecha):
         st.error("Solo puedes agendar a partir del tercer día.")
         st.stop()
 
-    # Carga de horarios
     ocupados = slots_ocupados(fecha)
     libres = [t for t in generar_slots(fecha) if t not in ocupados]
 
-    # Selector de horario (si no hay, mostramos un placeholder)
     if libres:
         opciones_horas = [t.strftime("%H:%M") for t in libres]
         slot_sel = st.selectbox("Horario disponible", opciones_horas)
@@ -242,32 +365,30 @@ if vista == "📅 Agendar (Pacientes)":
         slot_sel = None
         st.warning("No hay horarios libres en este día. Prueba con otra fecha.")
 
-    # Campos SIEMPRE visibles
-    nombre = st.text_input("Tu nombre")
-    telefono = st.text_input("Tu teléfono")
     nota = st.text_area("Motivo o nota (opcional)")
-
-    # Botón (deshabilitado si no hay horarios)
     confirmar = st.button("📝 Confirmar cita", disabled=(slot_sel is None))
 
     if confirmar:
-        if not (nombre.strip() and telefono.strip()):
-            st.error("Nombre y teléfono son obligatorios.")
-        elif slot_sel is None:
-            st.error("No hay un horario disponible seleccionado.")
-        else:
-            try:
+        try:
+            if slot_sel is None:
+                st.error("Selecciona un horario.")
+            else:
                 hora = datetime.strptime(slot_sel, "%H:%M").time()
-                agendar_cita(fecha, hora, nombre, telefono, nota or None)
-                st.success("¡Cita agendada! Te esperamos ✨")
+                agendar_cita_autenticado(fecha, hora, paciente_id=paciente["id"], nota=nota or None)
+                st.success("¡Cita agendada! ✨")
                 st.balloons()
                 try:
                     st.cache_data.clear()
                 except Exception:
                     pass
                 st.rerun()
-            except Exception as e:
-                st.error(f"No se pudo agendar: {e}")
+        except ValueError as ve:
+            st.error(str(ve))
+        except pg_errors.UniqueViolation:
+            st.error("Ya tienes una cita ese día. Solo se permite una por día.")
+        except Exception as e:
+            st.error(f"No se pudo agendar: {e}")
+
 
 # ====== Vista: Carmen (Admin) ======
 else:
@@ -321,20 +442,34 @@ else:
             st.rerun()
 
         df = citas_por_dia(fecha_sel)
-        if df.empty:
-            st.info("No hay citas aún.")
-        else:
-            st.dataframe(df, use_container_width=True)
-            st.divider()
-            st.caption("Editar cita")
 
-            ids = df["id"].astype(int).tolist()
+        # Construir tabla completa por horarios (incluye libres)
+        todos_slots = pd.DataFrame({"hora": generar_slots(fecha_sel)})
+        df_show = todos_slots.merge(df, on="hora", how="left")
+
+        # Orden y columnas
+        cols = ["id_cita", "paciente_id", "nombre", "telefono", "fecha", "hora", "nota"]
+        for c in cols:
+            if c not in df_show.columns:
+                df_show[c] = None
+        df_show["estado"] = df_show["id_cita"].apply(lambda x: "✅ libre" if pd.isna(x) else "🟡 ocupado")
+
+        st.dataframe(df_show[cols + ["estado"]], use_container_width=True)
+
+        # --- Edición / eliminación solo si hay alguna ocupada ---
+        if df.empty:
+            st.info("No hay citas ocupadas en este día.")
+        else:
+            st.divider()
+            st.caption("Editar / eliminar cita")
+
+            ids = df["id_cita"].astype(int).tolist()
             cid = st.selectbox("ID cita", ids, key="cid_admin")
-            r = df[df.id == cid].iloc[0]
+            r = df[df.id_cita == cid].iloc[0]
 
             nombre_e = st.text_input("Nombre", r["nombre"] or "", key="nombre_edit")
-            tel_e    = st.text_input("Teléfono", r["telefono"] or "", key="tel_edit")
-            nota_e   = st.text_area("Nota", r["nota"] or "", key="nota_edit")
+            tel_e = st.text_input("Teléfono", r["telefono"] or "", key="tel_edit")
+            nota_e = st.text_area("Nota", r["nota"] or "", key="nota_edit")
 
             if st.button("💾 Guardar cambios", key="save_edit"):
                 if nombre_e.strip() and tel_e.strip():
@@ -351,14 +486,13 @@ else:
                 else:
                     st.error("Nombre y teléfono son obligatorios.")
 
-            # --- Eliminar cita seleccionada ---
             st.divider()
             st.caption("Eliminar cita seleccionada")
             cdel1, cdel2 = st.columns([1, 1])
             with cdel1:
-                confirm_del = st.checkbox("Confirmar eliminación", key="confirm_del")
+                confirm_del = st.checkbox("Confirmar eliminación", key=f"confirm_del_{cid}")
             with cdel2:
-                if st.button("🗑️ Eliminar", disabled=not confirm_del, key="btn_del"):
+                if st.button("🗑️ Eliminar", disabled=not confirm_del, key=f"btn_del_{cid}"):
                     try:
                         n = eliminar_cita(int(cid))
                         if n:
@@ -368,6 +502,7 @@ else:
                         st.rerun()
                     except Exception as e:
                         st.error(f"No se pudo eliminar: {e}")
+
 
 
 
