@@ -131,6 +131,14 @@ def query_df(q_ps: str, p: tuple = ()):
         rows = cur.fetchall()
     return pd.DataFrame(rows, columns=cols)
 
+def query_df_fresh(q_ps: str, p: tuple = ()):
+    # Igual que query_df pero SIN @st.cache_data
+    with conn().cursor() as cur:
+        cur.execute(q_ps, p)
+        cols = [c.name for c in cur.description]
+        rows = cur.fetchall()
+    return pd.DataFrame(rows, columns=cols)
+
 # =========================
 # Esquema (se crea si no existe)
 # =========================
@@ -224,15 +232,17 @@ def login_paciente(telefono: str, password: str) -> Optional[dict]:
     return None
 
 def ya_tiene_cita_en_dia(paciente_id: int, fecha: date) -> bool:
-    df = query_df("SELECT 1 FROM citas WHERE paciente_id = %s AND fecha = %s LIMIT 1", (paciente_id, fecha))
+    df = query_df_fresh(
+        "SELECT 1 FROM citas WHERE paciente_id = %s AND fecha = %s LIMIT 1",
+        (paciente_id, fecha),
+    )
     return not df.empty
 
 def ya_tiene_cita_en_ventana_7dias(paciente_id: int, fecha_ref: date) -> bool:
     """
-    True si el paciente tiene alguna cita cuya fecha esté a < 7 días
-    de la fecha_ref (ventana ±6 días). No permite 2 citas en la misma semana.
+    True si el paciente tiene alguna cita a < 7 días de fecha_ref (ventana ±6 días).
     """
-    df = query_df(
+    df = query_df_fresh(
         """
         SELECT 1
         FROM citas
@@ -244,6 +254,7 @@ def ya_tiene_cita_en_ventana_7dias(paciente_id: int, fecha_ref: date) -> bool:
         (paciente_id, fecha_ref, fecha_ref),
     )
     return not df.empty
+
 
 
 def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, nota: Optional[str] = None):
