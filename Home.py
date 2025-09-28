@@ -440,32 +440,7 @@ if vista == "📅 Agendar (Pacientes)":
         except Exception as e:
             st.error(f"No se pudo agendar: {e}")
 
-        # -------------------------------
-        # 📌 Tu próxima cita (al fondo)
-        # -------------------------------
-        st.divider()
-        st.subheader("📌 Tu próxima cita")
-
-        next_df = None
-        # Si tienes login de paciente en session_state (opcional)
-        if st.session_state.get("patient_authed") and st.session_state.get("patient"):
-            pid = st.session_state["patient"]["id"]
-            next_df = proxima_cita_paciente(int(pid))
-        else:
-            # Sin login: intentamos por el teléfono escrito en el formulario
-            if telefono.strip():
-                next_df = proxima_cita_por_telefono(telefono.strip())
-
-        if next_df is None or next_df.empty:
-            st.info("Aún no tienes una cita próxima.")
-        else:
-            r = next_df.iloc[0]
-            fecha_str = _fmt_fecha(r["fecha"])
-            hora_str = _fmt_hora(r["hora"])
-            nota_str = r.get("nota") or "—"
-            st.success(
-                f"**Folio:** {int(r['id_cita'])}  \n**Fecha:** {fecha_str}  \n**Hora:** {hora_str}  \n**Nota:** {nota_str}")
-
+            
 
 
 # ====== Vista: Carmen (Admin) ======
