@@ -227,23 +227,24 @@ def ya_tiene_cita_en_dia(paciente_id: int, fecha: date) -> bool:
     df = query_df("SELECT 1 FROM citas WHERE paciente_id = %s AND fecha = %s LIMIT 1", (paciente_id, fecha))
     return not df.empty
 
-def ya_tuvo_cita_en_ultimos_7_dias(paciente_id: int) -> bool:
+def ya_tiene_cita_en_ventana_7dias(paciente_id: int, fecha_ref: date) -> bool:
     """
-    True si el paciente tiene al menos una cita entre (hoy-6 días) y hoy.
-    Nota: solo mira citas pasadas/ de hoy, no futuras.
+    True si el paciente tiene alguna cita cuya fecha esté a < 7 días
+    de la fecha_ref (ventana ±6 días). No permite 2 citas en la misma semana.
     """
     df = query_df(
         """
         SELECT 1
         FROM citas
         WHERE paciente_id = %s
-          AND fecha >= CURRENT_DATE - INTERVAL '6 days'
-          AND fecha <= CURRENT_DATE
+          AND fecha BETWEEN (%s::date - INTERVAL '6 days')
+                        AND (%s::date + INTERVAL '6 days')
         LIMIT 1
         """,
-        (paciente_id,),
+        (paciente_id, fecha_ref, fecha_ref),
     )
     return not df.empty
+
 
 def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, nota: Optional[str] = None):
     assert is_fecha_permitida(fecha), "La fecha seleccionada no está permitida (mínimo día 3)."
