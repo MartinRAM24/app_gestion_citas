@@ -240,16 +240,40 @@ def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, nota: Op
         # por si lo bloquea el constraint de BD
         raise ValueError("Ya tienes una cita ese día. Solo se permite una por día.")
 
-def generar_slots(fecha: date):
-    """Genera horarios cada PASO_MIN entre HORA_INICIO y HORA_FIN."""
-    slots = []
-    t = datetime.combine(fecha, HORA_INICIO)
-    fin = datetime.combine(fecha, HORA_FIN)
+# ── Horarios por día ─────────────────────────────────────────────
+# Lunes-Viernes: 10:00–12:00, 14:00–16:30, 18:30–19:00
+# Sábado:        08:00–14:00
+# Domingo:       sin atención (sin slots)
+
+def _bloques_del_dia(fecha: date) -> list[tuple[time, time]]:
+    wd = fecha.weekday()  # 0=lun ... 6=dom
+    if 0 <= wd <= 4:
+        return [
+            (time(10, 0), time(12, 0)),
+            (time(14, 0), time(16, 30)),
+            (time(18, 30), time(19, 0)),
+        ]
+    elif wd == 5:  # sábado
+        return [(time(8, 0), time(14, 0))]
+    else:          # domingo
+        return []
+
+def generar_slots(fecha: date) -> list[time]:
+    """
+    Genera horarios cada PASO_MIN dentro de los bloques del día.
+    IMPORTANTE: el fin es EXCLUSIVO (ultimo slot empieza antes del fin).
+    Ej: 10:00–12:00 con paso 30 -> 10:00, 10:30, 11:00, 11:30
+    """
+    slots: list[time] = []
     delta = timedelta(minutes=PASO_MIN)
-    while t <= fin:
-        slots.append(t.time())
-        t += delta
+    for ini, fin in _bloques_del_dia(fecha):
+        t = datetime.combine(fecha, ini)
+        tfin = datetime.combine(fecha, fin)
+        while t < tfin:   # fin EXCLUSIVO
+            slots.append(t.time())
+            t += delta
     return slots
+
 
 def is_fecha_permitida(fecha: date) -> bool:
     hoy = date.today()
@@ -417,7 +441,11 @@ if vista == "📅 Agendar (Pacientes)":
         slot_sel = st.selectbox("Horario disponible", opciones_horas)
     else:
         slot_sel = None
-        st.warning("No hay horarios libres en este día. Prueba con otra fecha.")
+        # mensaje más claro según el día
+        if fecha.weekday() == 6:
+            st.warning("Domingo no se agenda. Elige un día de lunes a sábado.")
+        else:
+            st.warning("No hay horarios libres en este día. Prueba con otra fecha.")
 
     nota = st.text_area("Motivo o nota (opcional)")
     confirmar = st.button("📝 Confirmar cita", disabled=(slot_sel is None))
@@ -482,13 +510,25 @@ else:
         fecha_sel = st.date_input("Día", value=date.today(), key="fecha_admin")
         st.caption("Puedes crear citas manualmente (sin restricción de 3 días).")
 
-        slot = st.selectbox("Hora", [t.strftime("%H:%M") for t in generar_slots(fecha_sel)], key="hora_admin")
+        # Horarios según reglas (L–V, Sábado, Domingo cerrado)
+        opts_admin = [t.strftime("%H:%M") for t in generar_slots(fecha_sel)]
+        if opts_admin:
+            slot = st.selectbox("Hora", opts_admin, key="hora_admin")
+        else:
+            slot = None
+            st.info("Día no laborable o sin bloques disponibles (domingo o fuera de horario).")
+
         nombre = st.text_input("Nombre paciente", key="nombre_admin")
         tel = st.text_input("Teléfono", key="tel_admin")
         nota = st.text_area("Nota (opcional)", key="nota_admin")
 
+        # 👇 Un solo botón con todas las validaciones
         if st.button("➕ Crear cita", key="crear_admin"):
-            if nombre.strip() and tel.strip():
+            if not slot:
+                st.error("Selecciona un día con horarios disponibles.")
+            elif not (nombre.strip() and tel.strip()):
+                st.error("Nombre y teléfono son obligatorios.")
+            else:
                 try:
                     crear_cita_manual(
                         fecha_sel,
@@ -505,8 +545,6 @@ else:
                     st.rerun()
                 except Exception as e:
                     st.error(f"No se pudo crear la cita: {e}")
-            else:
-                st.error("Nombre y teléfono son obligatorios.")
 
     with colr:
         st.subheader(f"Citas para {fecha_sel.strftime('%d-%m-%Y')}")
