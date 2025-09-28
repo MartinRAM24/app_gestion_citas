@@ -264,9 +264,9 @@ def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, nota: Op
     if ya_tiene_cita_en_dia(paciente_id, fecha):
         raise ValueError("Ya tienes una cita ese día. Solo se permite una por día.")
 
-    # 1 cada 7 días (ventana móvil hacia atrás desde hoy)
-    if ya_tuvo_cita_en_ultimos_7_dias(paciente_id):
-        raise ValueError("Solo se permite una cita cada 7 días. Intenta con una fecha posterior.")
+    # 1 cada 7 días respecto a la FECHA seleccionada (ventana ±6 días)
+    if ya_tiene_cita_en_ventana_7dias(paciente_id, fecha):
+        raise ValueError("Solo se permite una cita cada 7 días (respecto a la fecha elegida).")
 
     try:
         exec_sql(
@@ -274,8 +274,8 @@ def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, nota: Op
             (fecha, hora, paciente_id, nota),
         )
     except pg_errors.UniqueViolation:
-        # por si el UNIQUE(fecha, hora) salta o reintentos
         raise ValueError("Ya tienes una cita ese día. Solo se permite una por día.")
+
 
 
 # ── Horarios por día ─────────────────────────────────────────────
