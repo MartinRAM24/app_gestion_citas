@@ -126,11 +126,14 @@ tab_admin, tab_pac = st.tabs(["👩‍⚕️ Coach", "🧑 Paciente"])
 with tab_admin:
     st.subheader("Carmen (Coach)")
     with st.form("form_admin"):
-        u = st.text_input("Usuario", value="carmen", disabled=True)
+        st.text_input("Usuario", value="Carmen", disabled=True)
         p = st.text_input("Contraseña", type="password")
         ok = st.form_submit_button("Entrar como Coach")
     if ok:
-        if is_admin_ok(u, p):
+        # solo validar password
+        from modules.core import ADMIN_PASSWORD  # si lo exportas; o crea helper
+
+        if p and is_admin_ok("Carmen", p):
             st.session_state.role = "admin"
             st.switch_page("pages/2_Carmen_Admin.py")
         else:
