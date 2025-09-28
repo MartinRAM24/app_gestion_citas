@@ -181,3 +181,9 @@ with colr:
             n = eliminar_cita(int(cid))
             st.success("Cita eliminada." if n else "La cita ya no existía.")
             st.rerun()
+
+# Cerrar sesión (sustituye al antiguo st.page_link)
+if st.button("🚪 Cerrar sesión"):
+    st.session_state.role = None
+    st.session_state.paciente = None
+    st.rerun()
