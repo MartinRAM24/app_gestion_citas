@@ -88,8 +88,6 @@ def require_admin_auth() -> bool:
 
     return False
 
-
-@st.cache_resource
 @st.cache_resource
 def _connect():
     if not NEON_URL:
@@ -163,6 +161,33 @@ def ensure_schema():
 # =========================
 # Lógica de agenda
 # =========================
+# --- Próxima cita: helpers y consulta ---
+def _fmt_fecha(v) -> str:
+    try:
+        return pd.to_datetime(v).strftime('%d-%m-%Y')
+    except Exception:
+        return str(v)
+
+def _fmt_hora(v) -> str:
+    try:
+        return pd.to_datetime(str(v)).strftime('%H:%M')
+    except Exception:
+        return str(v)
+
+def proxima_cita_paciente(paciente_id: int):
+    """Devuelve un DataFrame con la próxima cita (>= ahora) del paciente."""
+    return query_df(
+        """
+        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota
+        FROM citas c
+        WHERE c.paciente_id = %s
+          AND (c.fecha > CURRENT_DATE OR (c.fecha = CURRENT_DATE AND c.hora >= CURRENT_TIME))
+        ORDER BY c.fecha, c.hora
+        LIMIT 1
+        """,
+        (paciente_id,),
+    )
+
 def _get_paciente() -> dict | None:
     p = st.session_state.get("patient")
     if isinstance(p, dict) and "id" in p:
@@ -417,6 +442,29 @@ if vista == "📅 Agendar (Pacientes)":
             st.error("Ya tienes una cita ese día. Solo se permite una por día.")
         except Exception as e:
             st.error(f"No se pudo agendar: {e}")
+
+    # -------------------------------
+    # 📌 Tu próxima cita (al fondo)
+    # -------------------------------
+    st.divider()
+    st.subheader("📌 Tu próxima cita")
+
+    next_df = proxima_cita_paciente(pid)
+
+    if next_df is None or next_df.empty:
+        st.info("Aún no tienes una cita próxima.")
+    else:
+        r = next_df.iloc[0]
+        fecha_str = _fmt_fecha(r["fecha"])
+        hora_str  = _fmt_hora(r["hora"])
+        nota_str  = r.get("nota") or "—"
+        st.success(
+            f"**Folio:** {int(r['id_cita'])}  \n"
+            f"**Fecha:** {fecha_str}  \n"
+            f"**Hora:** {hora_str}  \n"
+            f"**Nota:** {nota_str}"
+        )
+
 
 
 # ====== Vista: Carmen (Admin) ======
