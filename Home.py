@@ -559,13 +559,18 @@ else:
         df = citas_por_dia(fecha_sel)
 
         # Construir tabla completa por horarios (incluye libres)
-        # ⛏️ Normalizamos a string HH:MM para evitar choques de tipo al hacer merge
+        # Normalizamos a string HH:MM para evitar choques de tipo al hacer merge
         todos_slots = pd.DataFrame({"hora": generar_slots(fecha_sel)})
         todos_slots["hora_str"] = todos_slots["hora"].map(lambda t: t.strftime("%H:%M"))
 
         df_m = df.copy()
-        if not df_m.empty:
-            df_m["hora_str"] = df_m["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
+
+        # Asegura que exista la columna 'hora' (por si viniera vacío sin columnas, raro pero posible)
+        if "hora" not in df_m.columns:
+            df_m["hora"] = pd.NaT
+
+        # SIEMPRE crea 'hora_str', incluso si df_m está vacío
+        df_m["hora_str"] = df_m["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
 
         df_show = todos_slots.merge(df_m, on="hora_str", how="left")
 
@@ -581,7 +586,7 @@ else:
         # Mostramos 'hora_str' como 'hora' legible primero
         df_show = df_show.rename(columns={"hora_str": "hora_txt"})
         st.dataframe(
-            df_show[["hora_txt", "estado"] + cols],  # hora_txt primero, luego estado y el resto
+            df_show[["hora_txt", "estado"] + cols],
             use_container_width=True
         )
 
