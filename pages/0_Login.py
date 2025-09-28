@@ -1,5 +1,6 @@
 import streamlit as st
 from modules.core import is_admin_ok, login_paciente, registrar_paciente, normalize_tel
+import base64
 
 CUSTOM_CSS = """
 /* Sidebar */
