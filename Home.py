@@ -559,17 +559,31 @@ else:
         df = citas_por_dia(fecha_sel)
 
         # Construir tabla completa por horarios (incluye libres)
+        # ⛏️ Normalizamos a string HH:MM para evitar choques de tipo al hacer merge
         todos_slots = pd.DataFrame({"hora": generar_slots(fecha_sel)})
-        df_show = todos_slots.merge(df, on="hora", how="left")
+        todos_slots["hora_str"] = todos_slots["hora"].map(lambda t: t.strftime("%H:%M"))
+
+        df_m = df.copy()
+        if not df_m.empty:
+            df_m["hora_str"] = df_m["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
+
+        df_show = todos_slots.merge(df_m, on="hora_str", how="left")
 
         # Orden y columnas
         cols = ["id_cita", "paciente_id", "nombre", "telefono", "fecha", "hora", "nota"]
         for c in cols:
             if c not in df_show.columns:
                 df_show[c] = None
+
+        # Columna estado y presentación
         df_show["estado"] = df_show["id_cita"].apply(lambda x: "✅ libre" if pd.isna(x) else "🟡 ocupado")
 
-        st.dataframe(df_show[cols + ["estado"]], use_container_width=True)
+        # Mostramos 'hora_str' como 'hora' legible primero
+        df_show = df_show.rename(columns={"hora_str": "hora_txt"})
+        st.dataframe(
+            df_show[["hora_txt", "estado"] + cols],  # hora_txt primero, luego estado y el resto
+            use_container_width=True
+        )
 
         # --- Edición / eliminación solo si hay alguna ocupada ---
         if df.empty:
