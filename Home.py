@@ -227,18 +227,44 @@ def ya_tiene_cita_en_dia(paciente_id: int, fecha: date) -> bool:
     df = query_df("SELECT 1 FROM citas WHERE paciente_id = %s AND fecha = %s LIMIT 1", (paciente_id, fecha))
     return not df.empty
 
+def ya_tuvo_cita_en_ultimos_7_dias(paciente_id: int) -> bool:
+    """
+    True si el paciente tiene al menos una cita entre (hoy-6 días) y hoy.
+    Nota: solo mira citas pasadas/ de hoy, no futuras.
+    """
+    df = query_df(
+        """
+        SELECT 1
+        FROM citas
+        WHERE paciente_id = %s
+          AND fecha >= CURRENT_DATE - INTERVAL '6 days'
+          AND fecha <= CURRENT_DATE
+        LIMIT 1
+        """,
+        (paciente_id,),
+    )
+    return not df.empty
+
 def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, nota: Optional[str] = None):
     assert is_fecha_permitida(fecha), "La fecha seleccionada no está permitida (mínimo día 3)."
+
+    # 1 por día
     if ya_tiene_cita_en_dia(paciente_id, fecha):
         raise ValueError("Ya tienes una cita ese día. Solo se permite una por día.")
+
+    # 1 cada 7 días (ventana móvil hacia atrás desde hoy)
+    if ya_tuvo_cita_en_ultimos_7_dias(paciente_id):
+        raise ValueError("Solo se permite una cita cada 7 días. Intenta con una fecha posterior.")
+
     try:
         exec_sql(
             "INSERT INTO citas(fecha, hora, paciente_id, nota) VALUES (%s, %s, %s, %s)",
             (fecha, hora, paciente_id, nota),
         )
     except pg_errors.UniqueViolation:
-        # por si lo bloquea el constraint de BD
+        # por si el UNIQUE(fecha, hora) salta o reintentos
         raise ValueError("Ya tienes una cita ese día. Solo se permite una por día.")
+
 
 # ── Horarios por día ─────────────────────────────────────────────
 # Lunes-Viernes: 10:00–12:00, 14:00–16:30, 18:30–19:00
