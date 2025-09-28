@@ -143,6 +143,12 @@ def ensure_schema():
 # =========================
 # Lógica de agenda
 # =========================
+def _get_paciente() -> dict | None:
+    p = st.session_state.get("patient")
+    if isinstance(p, dict) and "id" in p:
+        return p
+    return None
+
 def registrar_paciente(nombre: str, telefono: str, password: str) -> int:
     tel = normalize_tel(telefono)
     pw_hash = hash_password(password)
@@ -287,15 +293,17 @@ with st.sidebar:
 
 # ====== Vista: Pacientes ======
 if vista == "📅 Agendar (Pacientes)":
-
     st.header("📅 Agenda tu cita")
 
-    # ---- Login / Registro ----
+    # Estado inicial de sesión
     if "patient_authed" not in st.session_state:
         st.session_state.patient_authed = False
         st.session_state.patient = None
 
-    if not st.session_state.patient_authed:
+    paciente = _get_paciente()
+
+    # Si no hay sesión válida, mostramos login/registro y paramos el render
+    if not st.session_state.patient_authed or not paciente:
         modo = st.radio("¿Tienes cuenta?", ["Iniciar sesión", "Registrarme"], horizontal=True)
         if modo == "Iniciar sesión":
             with st.form("login_paciente"):
@@ -311,9 +319,6 @@ if vista == "📅 Agendar (Pacientes)":
                     st.rerun()
                 else:
                     st.error("Teléfono o contraseña incorrectos.")
-            else:
-                st.info("Inicia sesión o regístrate para continuar.")
-            st.stop()
         else:
             with st.form("registro_paciente"):
                 nombre = st.text_input("Nombre completo")
@@ -324,29 +329,33 @@ if vista == "📅 Agendar (Pacientes)":
             if ok:
                 if not (nombre.strip() and tel.strip() and pw1 and pw2):
                     st.error("Todos los campos son obligatorios.")
-                    st.stop()
-                if pw1 != pw2:
+                elif pw1 != pw2:
                     st.error("Las contraseñas no coinciden.")
-                    st.stop()
-                try:
-                    pid = registrar_paciente(nombre, tel, pw1)
-                    st.session_state.patient_authed = True
-                    st.session_state.patient = {"id": pid, "nombre": nombre.strip(), "telefono": normalize_tel(tel)}
-                    st.success("Cuenta creada.")
-                    st.rerun()
-                except pg_errors.UniqueViolation:
-                    st.error("Ese teléfono ya está registrado.")
-                except Exception as e:
-                    st.error(f"No se pudo crear la cuenta: {e}")
-                st.stop()
+                else:
+                    try:
+                        pid = registrar_paciente(nombre, tel, pw1)
+                        st.session_state.patient_authed = True
+                        st.session_state.patient = {"id": pid, "nombre": nombre.strip(), "telefono": normalize_tel(tel)}
+                        st.success("Cuenta creada.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"No se pudo crear la cuenta: {e}")
+        st.stop()  # <- importantísimo: no sigas renderizando si no hay sesión
 
-    # ---- Agendar (solo fecha/hora/nota) ----
-    paciente = st.session_state.patient
-    st.success(f"Agendando como: {paciente['nombre']} — {paciente['telefono']} (ID {paciente['id']})")
-    if st.button("Cerrar sesión paciente", key="logout_paciente"):
+    # --- Desde aquí ya hay paciente válido ---
+    paciente = _get_paciente()  # refresca referencia
+    nombre  = str(paciente.get("nombre", ""))
+    tel     = str(paciente.get("telefono", ""))
+    pid     = int(paciente.get("id"))
+
+    st.success(f"Agendando como: {nombre} — {tel} (ID {pid})")
+    if st.button("Cerrar sesión paciente"):
         st.session_state.patient_authed = False
         st.session_state.patient = None
         st.rerun()
+
+    # ... (resto de tu flujo de selección de fecha/hora/nota y confirmación)
+
 
     min_day = date.today() + timedelta(days=BLOQUEO_DIAS_MIN)
     fecha = st.date_input("Elige el día (disponible desde el tercer día)", value=min_day, min_value=min_day)
