@@ -90,11 +90,31 @@ def require_admin_auth() -> bool:
 
 
 @st.cache_resource
-def conn():
+@st.cache_resource
+def _connect():
     if not NEON_URL:
         st.error("Falta configurar NEON_DATABASE_URL en Secrets.")
         st.stop()
     return psycopg.connect(NEON_URL, autocommit=True)
+
+def conn():
+    """Devuelve una conexión viva; si está cerrada o murió, se reconecta."""
+    c = _connect()
+    try:
+        if getattr(c, "closed", False):
+            raise psycopg.OperationalError("closed")
+        # ping barato
+        with c.cursor() as cur:
+            cur.execute("SELECT 1")
+    except Exception:
+        # resetea el recurso y vuelve a conectar
+        try:
+            st.cache_resource.clear()
+        except Exception:
+            pass
+        c = _connect()
+    return c
+
 
 def exec_sql(q_ps: str, p: tuple = ()):
     with conn().cursor() as cur:
