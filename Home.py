@@ -143,7 +143,6 @@ def ensure_schema():
 # =========================
 # Lógica de agenda
 # =========================
-
 def _get_paciente() -> dict | None:
     p = st.session_state.get("patient")
     if isinstance(p, dict) and "id" in p:
