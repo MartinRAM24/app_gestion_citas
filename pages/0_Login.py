@@ -174,14 +174,14 @@ with tab_social:
     # Embed oficial de TikTok
     st.components.v1.html(
         f"""
-        <div style="display:flex; justify-content:center; background:#0E1117; padding:20px;">
-            <blockquote class="tiktok-embed" cite="{TTK_EMBED_URL}" data-video-id="" style="max-width: 350px; min-width: 325px;">
-              <section><a target="_blank" href="{TTK_EMBED_URL}">Ver en TikTok</a></section>
-            </blockquote>
-            <script async src="https://www.tiktok.com/embed.js"></script>
+        <div style="display:flex; justify-content:center;">
+            <iframe src="https://www.tiktok.com/embed/v2/7521784372152831240"
+                    width="350" height="600" frameborder="0"
+                    allow="autoplay; encrypted-media"
+                    allowfullscreen></iframe>
         </div>
         """,
-        height=720,
+        height=650,
     )
 
 
