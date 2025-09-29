@@ -1,4 +1,4 @@
-# modules/core.py — DB + lógica común (tomado de tu archivo único)
+# modules/core.py — DB + lógica común
 import os, re, bcrypt
 from typing import Optional
 from datetime import date, datetime, timedelta, time
@@ -8,16 +8,28 @@ from psycopg import errors as pg_errors
 import streamlit as st
 import requests
 
-
 # ---------- Config ----------
 HORA_INICIO: time = time(9, 0)
 HORA_FIN:    time = time(17, 0)
 PASO_MIN:    int  = 30
 BLOQUEO_DIAS_MIN: int = 2   # hoy/mañana bloqueados → pacientes desde día 3
 
-NEON_URL = st.secrets.get("NEON_DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
-ADMIN_USER = os.getenv("ADMIN_USER") or st.secrets.get("CARMEN_USER", "carmen")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or st.secrets.get("CARMEN_PASSWORD")
+# DB URL: prioriza ENV (Railway) y luego secrets (Streamlit)
+NEON_URL = os.getenv("NEON_DATABASE_URL") or st.secrets.get("NEON_DATABASE_URL")
+
+# Admin: acepta ADMIN_* o CARMEN_* (para compatibilidad hacia atrás)
+ADMIN_USER = (
+    os.getenv("ADMIN_USER")
+    or os.getenv("CARMEN_USER")
+    or st.secrets.get("ADMIN_USER")
+    or st.secrets.get("CARMEN_USER", "carmen")
+)
+ADMIN_PASSWORD = (
+    os.getenv("ADMIN_PASSWORD")
+    or os.getenv("CARMEN_PASSWORD")
+    or st.secrets.get("ADMIN_PASSWORD")
+    or st.secrets.get("CARMEN_PASSWORD")
+)
 
 PEPPER = (st.secrets.get("PASSWORD_PEPPER") or os.getenv("PASSWORD_PEPPER") or "").encode()
 
@@ -43,7 +55,7 @@ def is_admin_ok(user: str, pw: str) -> bool:
 @st.cache_resource
 def _connect():
     if not NEON_URL:
-        st.error("Falta configurar NEON_DATABASE_URL en Secrets.")
+        st.error("Falta configurar NEON_DATABASE_URL (ENV o Secrets).")
         st.stop()
     return psycopg.connect(NEON_URL, autocommit=True)
 
@@ -255,18 +267,28 @@ def eliminar_cita(cita_id: int) -> int:
 
 # ========== WHATSAPP / RECORDATORIOS ==========
 
-def citas_manana():
-    """Citas de mañana (fecha = hoy + 1) con datos de paciente."""
-    return query_df(
-        """
-        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota,
-               p.id AS paciente_id, p.nombre, p.telefono
-        FROM citas c
-        JOIN pacientes p ON p.id = c.paciente_id
-        WHERE c.fecha = CURRENT_DATE + INTERVAL '1 day'
-        ORDER BY c.hora
-        """
-    )
+def _get_whatsapp_cfg() -> dict:
+    """
+    Obtiene config de WhatsApp desde:
+    1) st.secrets["whatsapp"] (Streamlit),
+    2) variables de entorno planas (Railway): WHATSAPP_TOKEN / _PHONE_NUMBER_ID / _TEMPLATE / _LANG
+    """
+    # 1) Bloque en secrets.toml
+    if "whatsapp" in st.secrets:
+        sec = st.secrets["whatsapp"]
+        return {
+            "TOKEN": sec.get("TOKEN"),
+            "PHONE_NUMBER_ID": sec.get("PHONE_NUMBER_ID"),
+            "TEMPLATE": sec.get("TEMPLATE"),
+            "LANG": sec.get("LANG", "es_MX"),
+        }
+    # 2) ENV (Railway)
+    return {
+        "TOKEN": os.getenv("WHATSAPP_TOKEN"),
+        "PHONE_NUMBER_ID": os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
+        "TEMPLATE": os.getenv("WHATSAPP_TEMPLATE"),
+        "LANG": os.getenv("WHATSAPP_LANG", "es_MX"),
+    }
 
 def _fmt_fecha_es(v) -> str:
     try: return pd.to_datetime(v).strftime("%d/%m/%Y")
@@ -291,7 +313,11 @@ def _to_e164_mx(tel: str) -> str | None:
 
 def _wa_send_meta(to_e164: str, nombre: str, fecha_txt: str, hora_txt: str):
     """Envía mensaje por plantilla (WhatsApp Cloud API / Meta)."""
-    cfg = st.secrets["whatsapp"]
+    cfg = _get_whatsapp_cfg()
+    missing = [k for k in ("TOKEN", "PHONE_NUMBER_ID", "TEMPLATE") if not cfg.get(k)]
+    if missing:
+        raise RuntimeError(f"Config WhatsApp incompleta (falta: {', '.join(missing)}).")
+
     url = f"https://graph.facebook.com/v19.0/{cfg['PHONE_NUMBER_ID']}/messages"
     headers = {
         "Authorization": f"Bearer {cfg['TOKEN']}",
@@ -316,6 +342,19 @@ def _wa_send_meta(to_e164: str, nombre: str, fecha_txt: str, hora_txt: str):
     r = requests.post(url, headers=headers, json=payload, timeout=15)
     r.raise_for_status()
     return r.json()
+
+def citas_manana():
+    """Citas de mañana (fecha = hoy + 1) con datos de paciente."""
+    return query_df(
+        """
+        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota,
+               p.id AS paciente_id, p.nombre, p.telefono
+        FROM citas c
+        JOIN pacientes p ON p.id = c.paciente_id
+        WHERE c.fecha = CURRENT_DATE + INTERVAL '1 day'
+        ORDER BY c.hora
+        """
+    )
 
 def enviar_recordatorios_manana(dry_run: bool = False) -> dict:
     """
@@ -363,3 +402,4 @@ def enviar_recordatorios_manana(dry_run: bool = False) -> dict:
         res["detalles"].append(item)
 
     return res
+
