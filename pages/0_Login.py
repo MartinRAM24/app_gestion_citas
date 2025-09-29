@@ -136,11 +136,10 @@ with tab_social:
         st.markdown(
             f"""
             <a href="{IG_URL}" target="_blank" rel="noopener">
-              <img src="data:image/png;base64,{ig_b64}" alt="Instagram" style="width:120px; border-radius:12px; display:block; margin:0 auto;">
+              <img src="data:image/png;base64,{ig_b64}" 
+                   alt="Instagram" 
+                   style="width:120px; border-radius:12px; display:block; margin:0 auto; cursor:pointer;">
             </a>
-            <div style="margin-top:6px; text-align:center;">
-              <a href="{IG_URL}" target="_blank">Instagram</a>
-            </div>
             """,
             unsafe_allow_html=True,
         )
@@ -149,11 +148,10 @@ with tab_social:
         st.markdown(
             f"""
             <a href="{TTK_PROFILE_URL}" target="_blank" rel="noopener">
-              <img src="data:image/png;base64,{ttk_b64}" alt="TikTok" style="width:120px; border-radius:12px; display:block; margin:0 auto;">
+              <img src="data:image/png;base64,{ttk_b64}" 
+                   alt="TikTok" 
+                   style="width:120px; border-radius:12px; display:block; margin:0 auto; cursor:pointer;">
             </a>
-            <div style="margin-top:6px; text-align:center;">
-              <a href="{TTK_PROFILE_URL}" target="_blank">TikTok</a>
-            </div>
             """,
             unsafe_allow_html=True,
         )
@@ -162,11 +160,10 @@ with tab_social:
         st.markdown(
             f"""
             <a href="{wa_link}" target="_blank" rel="noopener">
-              <img src="data:image/png;base64,{wa_b64}" alt="WhatsApp" style="width:80px; border-radius:12px; display:block; margin:0 auto;">
+              <img src="data:image/png;base64,{wa_b64}" 
+                   alt="WhatsApp" 
+                   style="width:80px; border-radius:12px; display:block; margin:0 auto; cursor:pointer;">
             </a>
-            <div style="margin-top:6px; text-align:center;">
-              <a href="{wa_link}" target="_blank">WhatsApp</a>
-            </div>
             """,
             unsafe_allow_html=True,
         )
