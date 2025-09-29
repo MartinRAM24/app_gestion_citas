@@ -18,82 +18,8 @@ main.block-container {
   border-radius: 12px;
 }
 
-/* Tarjetas internas (expanders, tabs, forms) */
-section[data-testid="stSidebarNav"] { background: transparent; }
-
-/* ===== Expanders: gris medio agradable ===== */
-div[data-testid="stExpander"] > details {
-  background: #2B2F36 !important;       /* panel cerrado */
-  border: 1px solid #3A3F47 !important;
-  border-radius: 12px !important;
-}
-div[data-testid="stExpander"] > details[open] {
-  background: #2F343C !important;       /* panel abierto */
-}
-div[data-testid="stExpander"] summary {
-  background: #2B2F36 !important;       /* tira del header */
-  color: #EAECEF !important;
-  border-radius: 12px !important;
-}
-
-/* ===== Inputs en gris (texto/number/textarea/select/date/time/multiselect) ===== */
-[data-testid="stTextInput"] input,
-[data-testid="stNumberInput"] input,
-[data-testid="stTextArea"] textarea,
-[data-testid="stDateInput"] input,
-[data-testid="stTimeInput"] input,
-[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
-[data-testid="stMultiSelect"] div[role="combobox"],
-/* file uploader caja */
-[data-testid="stFileUploader"] section[data-testid="stFileDropzone"] {
-  background: #2F3136 !important;
-  color: #F5F6F7 !important;
-  border: 1px solid #4A4D55 !important;
-  border-radius: 10px !important;
-}
-
-/* Placeholders más claros */
-[data-testid="stTextInput"] input::placeholder,
-[data-testid="stNumberInput"] input::placeholder,
-[data-testid="stTextArea"] textarea::placeholder,
-[data-testid="stDateInput"] input::placeholder,
-[data-testid="stTimeInput"] input::placeholder {
-  color: #B8B9BE !important;
-}
-
-/* Desplegable del select */
-div[data-baseweb="popover"] div[role="listbox"] {
-  background: #2F3136 !important;
-  color: #F5F6F7 !important;
-  border: 1px solid #4A4D55 !important;
-}
-
-
-
-/* Botones primarios */
-button[kind="primary"] {
-  background: #800020 !important;
-  color: #FFFFFF !important;
-  border-radius: 10px !important;
-  border: 0 !important;
-}
-button[kind="primary"]:hover { filter: brightness(0.9); }
-
-/* Links */
-a, .stLinkButton button { color: #7B1E3C !important; }
-
-/* DataFrames */
-.stDataFrame div[data-testid="stTable"] {
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-div[data-baseweb="notification"] {
-  background-color: #800020 !important; 
-  color: #FFFFFF !important;
-}
-
-/* Encabezados */
+/* Expanders / inputs / botones... (tu CSS actual) */
+div[data-baseweb="notification"] { background-color: #800020 !important; color: #FFFFFF !important; }
 h1, h2, h3, h4 { color: #111827; }
 """
 
@@ -119,15 +45,18 @@ st.markdown(
 # Estado base
 st.session_state.setdefault("role", None)
 st.session_state.setdefault("paciente", None)
-# Redirección centralizada según rol guardado
+
+# Redirección si ya hay sesión
 role = st.session_state.get("role")
 if role == "admin":
     st.switch_page("pages/2_Carmen_Admin.py")
 elif role == "paciente" and st.session_state.get("paciente"):
     st.switch_page("pages/1_Paciente_Dashboard.py")
 
-
-tab_admin, tab_pac = st.tabs(["👩‍⚕️ Coach", "🧑 Paciente"])
+# =========================
+# Tabs (agregamos 📣 Redes)
+# =========================
+tab_admin, tab_pac, tab_social = st.tabs(["👩‍⚕️ Coach", "🧑 Paciente", "📣 Redes"])
 
 # ---- Coach
 with tab_admin:
@@ -139,10 +68,9 @@ with tab_admin:
     if ok:
         if p and is_admin_ok("Carmen", p):
             st.session_state.role = "admin"
-            st.rerun()         # <- en vez de switch_page aquí
+            st.rerun()
         else:
             st.error("Credenciales inválidas.")
-
 
 # ---- Paciente
 with tab_pac:
@@ -159,7 +87,7 @@ with tab_pac:
             if user:
                 st.session_state.role = "paciente"
                 st.session_state.paciente = user
-                st.rerun()       # <- aquí también
+                st.rerun()
             else:
                 st.error("Teléfono o contraseña incorrectos.")
     else:
@@ -180,5 +108,68 @@ with tab_pac:
                 st.session_state.paciente = {
                     "id": pid, "nombre": nombre.strip(), "telefono": normalize_tel(tel)
                 }
-                st.rerun()       # <- aquí también
+                st.rerun()
+
+# ---- 📣 Redes (a la derecha)
+with tab_social:
+    st.subheader("Conecta con Carmen")
+
+    # Links
+    IG_URL = "https://www.instagram.com/carmen._ochoa?igsh=dnd2aGt5a25xYTg0"
+    TTK_PROFILE_URL = "https://www.tiktok.com/@carmen_ochoa123?_t=ZS-907SiUuhJDw&_r=1"
+    TTK_VIDEO_URL = "https://vt.tiktok.com/ZSDnmFBK2/"
+    # WhatsApp: ajusta el prefijo país si hace falta (52 = México)
+    WA_NUMBER = "523511974405"
+    WA_TEXT = "Hola Coach Carmen, vengo de tu web y me gustaría agendar una cita."
+    WA_URL = f"https://wa.me/{WA_NUMBER}?text={st.utils._quote(WA_TEXT)}"
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown(
+            f"""
+            <a href="{IG_URL}" target="_blank" rel="noopener">
+                <img src="assets/ig.png" style="width:120px; border-radius:12px;">
+            </a>
+            <div style="margin-top:6px; text-align:center;"><a href="{IG_URL}" target="_blank">Instagram</a></div>
+            """,
+            unsafe_allow_html=True
+        )
+    with c2:
+        st.markdown(
+            f"""
+            <a href="{TTK_PROFILE_URL}" target="_blank" rel="noopener">
+                <img src="assets/tiktok.png" style="width:120px; border-radius:12px;">
+            </a>
+            <div style="margin-top:6px; text-align:center;"><a href="{TTK_PROFILE_URL}" target="_blank">TikTok</a></div>
+            """,
+            unsafe_allow_html=True
+        )
+    with c3:
+        st.markdown(
+            f"""
+            <a href="{WA_URL}" target="_blank" rel="noopener">
+                <img src="assets/wa.png" style="width:120px; border-radius:12px;">
+            </a>
+            <div style="margin-top:6px; text-align:center;"><a href="{WA_URL}" target="_blank">WhatsApp</a></div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("---")
+    st.caption("Video destacado de TikTok")
+
+    # Embed simple del video de TikTok (si no carga, muestra un link)
+    try:
+        st.components.v1.html(
+            f"""
+            <blockquote class="tiktok-embed" cite="{TTK_VIDEO_URL}" data-video-id="" style="max-width: 605px; min-width: 325px;">
+              <section> <a target="_blank" href="{TTK_VIDEO_URL}">Ver en TikTok</a> </section>
+            </blockquote>
+            <script async src="https://www.tiktok.com/embed.js"></script>
+            """,
+            height=680,
+        )
+    except Exception:
+        st.link_button("Ver video en TikTok", TTK_VIDEO_URL)
+
 
