@@ -111,69 +111,80 @@ with tab_pac:
                 }
                 st.rerun()
 
+ig_b64 = get_base64_of_bin_file("assets/ig.png")
+ttk_b64 = get_base64_of_bin_file("assets/tiktok.png")
+wa_b64 = get_base64_of_bin_file("assets/wa.png")
+
+# Links
+IG_URL = "https://www.instagram.com/carmen._ochoa?igsh=dnd2aGt5a25xYTg0"
+TTK_PROFILE_URL = "https://www.tiktok.com/@carmen_ochoa123?_t=ZS-907SiUuhJDw&_r=1"
+TTK_VIDEO_ID = "7521784372152831240"
+TTK_EMBED_SRC = f"https://www.tiktok.com/embed/v2/video/{TTK_VIDEO_ID}?lang=es&autoplay=0&theme=dark"
+
+WA_NUMBER = "523511974405"  # 52 + número sin signos
+WA_TEXT = "Hola Carmen, quiero una consulta."
+wa_link = f"https://wa.me/{WA_NUMBER}?text={quote_plus(WA_TEXT)}"
 # ---- 📣 Redes (a la derecha)
 with tab_social:
     st.subheader("Conecta con Carmen")
 
-    # Links
-    IG_URL = "https://www.instagram.com/carmen._ochoa?igsh=dnd2aGt5a25xYTg0"
-    TTK_PROFILE_URL = "https://www.tiktok.com/@carmen_ochoa123?_t=ZS-907SiUuhJDw&_r=1"
-    # Video específico de TikTok
-    TTK_VIDEO_ID = "7521784372152831240"
-    TTK_EMBED_URL = f"https://www.tiktok.com/embed/{TTK_VIDEO_ID}"
-
-    # Número con LADA del país (ej: 52 para México) + número sin signos
-    WA_NUMBER = "523511974405"  # 52 + 3511974405
-    WA_TEXT = "Hola Carmen, quiero una consulta."
-    wa_link = f"https://wa.me/{WA_NUMBER}?text={quote_plus(WA_TEXT)}"
-
-    # Iconos con imágenes locales
     c1, c2, c3 = st.columns(3)
+
     with c1:
         st.markdown(
             f"""
             <a href="{IG_URL}" target="_blank" rel="noopener">
-                <img src="assets/ig.png" style="width:120px; border-radius:12px;">
+              <img src="data:image/png;base64,{ig_b64}" alt="Instagram" style="width:120px; border-radius:12px; display:block; margin:0 auto;">
             </a>
             <div style="margin-top:6px; text-align:center;">
-                <a href="{IG_URL}" target="_blank">Instagram</a>
+              <a href="{IG_URL}" target="_blank">Instagram</a>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
+
     with c2:
         st.markdown(
             f"""
             <a href="{TTK_PROFILE_URL}" target="_blank" rel="noopener">
-                <img src="assets/tiktok.png" style="width:120px; border-radius:12px;">
+              <img src="data:image/png;base64,{ttk_b64}" alt="TikTok" style="width:120px; border-radius:12px; display:block; margin:0 auto;">
             </a>
             <div style="margin-top:6px; text-align:center;">
-                <a href="{TTK_PROFILE_URL}" target="_blank">TikTok</a>
+              <a href="{TTK_PROFILE_URL}" target="_blank">TikTok</a>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
+
     with c3:
         st.markdown(
             f"""
             <a href="{wa_link}" target="_blank" rel="noopener">
-                <img src="assets/wa.png" style="width:100px; border-radius:12px;">
+              <img src="data:image/png;base64,{wa_b64}" alt="WhatsApp" style="width:80px; border-radius:12px; display:block; margin:0 auto;">
             </a>
             <div style="margin-top:6px; text-align:center;">
-                <a href="{wa_link}" target="_blank">WhatsApp</a>
+              <a href="{wa_link}" target="_blank">WhatsApp</a>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
     st.markdown("---")
-    st.caption("🎥 Video destacado de TikTok")
+    st.caption("Video destacado de TikTok")
 
-    # Embed oficial de TikTok
-    st.components.v1.iframe(
-        src=TTK_EMBED_URL,
-        height=540,
-        scrolling=False,
+    # Embed centrado con fondo dark
+    st.components.v1.html(
+        f"""
+        <div style="display:flex; justify-content:center; background:transparent;">
+          <iframe
+            src="{TTK_EMBED_SRC}"
+            style="border:none; width:360px; height:640px;"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          ></iframe>
+        </div>
+        """,
+        height=700,
     )
 
 
