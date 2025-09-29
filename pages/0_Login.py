@@ -162,7 +162,7 @@ with tab_social:
             <a href="{wa_link}" target="_blank" rel="noopener">
               <img src="data:image/png;base64,{wa_b64}" 
                    alt="WhatsApp" 
-                   style="width:80px; border-radius:12px; display:block; margin:0 auto; cursor:pointer;">
+                   style="width:120px; border-radius:12px; display:block; margin:0 auto; cursor:pointer;">
             </a>
             """,
             unsafe_allow_html=True,
