@@ -62,7 +62,7 @@ ENABLE_SOCIAL = False   # cambia a True si lo quieres activar
 tab_coach, tab_pac, tab_social = st.tabs(["👩‍⚕️ Coach", "🧑 Paciente", "📣 Redes"])
 
 # ---- Coach
-with tab_admin:
+with tab_coach:
     st.subheader("Carmen (Coach)")
     with st.form("form_admin"):
         st.text_input("Usuario", value="Carmen", disabled=True)
