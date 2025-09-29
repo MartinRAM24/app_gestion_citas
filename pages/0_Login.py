@@ -118,16 +118,12 @@ with tab_social:
     # Links
     IG_URL = "https://www.instagram.com/carmen._ochoa?igsh=dnd2aGt5a25xYTg0"
     TTK_PROFILE_URL = "https://www.tiktok.com/@carmen_ochoa123?_t=ZS-907SiUuhJDw&_r=1"
-    # Video específico de TikTok
-    TTK_VIDEO_ID = "7521784372152831240"
-    TTK_EMBED_URL = f"https://www.tiktok.com/embed/{TTK_VIDEO_ID}"
-
+    TTK_VIDEO_URL = "https://vt.tiktok.com/ZSDnmFBK2/"
     # Número con LADA del país (ej: 52 para México) + número sin signos
     WA_NUMBER = "523511974405"  # 52 + 3511974405
     WA_TEXT = "Hola Carmen, quiero una consulta."
     wa_link = f"https://wa.me/{WA_NUMBER}?text={quote_plus(WA_TEXT)}"
 
-    # Iconos con imágenes locales
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown(
@@ -135,9 +131,7 @@ with tab_social:
             <a href="{IG_URL}" target="_blank" rel="noopener">
                 <img src="assets/ig.png" style="width:120px; border-radius:12px;">
             </a>
-            <div style="margin-top:6px; text-align:center;">
-                <a href="{IG_URL}" target="_blank">Instagram</a>
-            </div>
+            <div style="margin-top:6px; text-align:center;"><a href="{IG_URL}" target="_blank">Instagram</a></div>
             """,
             unsafe_allow_html=True
         )
@@ -147,34 +141,32 @@ with tab_social:
             <a href="{TTK_PROFILE_URL}" target="_blank" rel="noopener">
                 <img src="assets/tiktok.png" style="width:120px; border-radius:12px;">
             </a>
-            <div style="margin-top:6px; text-align:center;">
-                <a href="{TTK_PROFILE_URL}" target="_blank">TikTok</a>
-            </div>
+            <div style="margin-top:6px; text-align:center;"><a href="{TTK_PROFILE_URL}" target="_blank">TikTok</a></div>
             """,
             unsafe_allow_html=True
         )
     with c3:
         st.markdown(
-            f"""
-            <a href="{wa_link}" target="_blank" rel="noopener">
-                <img src="assets/wa.png" style="width:100px; border-radius:12px;">
-            </a>
-            <div style="margin-top:6px; text-align:center;">
-                <a href="{wa_link}" target="_blank">WhatsApp</a>
-            </div>
-            """,
-            unsafe_allow_html=True
+            f'<a href="{wa_link}" target="_blank">'
+            f'<img src="https://cdn-icons-png.flaticon.com/512/733/733585.png" width="80" alt="WhatsApp" /></a>',
+            unsafe_allow_html=True,
         )
 
     st.markdown("---")
-    st.caption("🎥 Video destacado de TikTok")
+    st.caption("Video destacado de TikTok")
 
-    # Embed oficial de TikTok
-    st.components.v1.iframe(
-        src=TTK_EMBED_URL,
-        height=540,
-        scrolling=False,
-    )
-
+    # Embed simple del video de TikTok (si no carga, muestra un link)
+    try:
+        st.components.v1.html(
+            f"""
+            <blockquote class="tiktok-embed" cite="{TTK_VIDEO_URL}" data-video-id="" style="max-width: 605px; min-width: 325px;">
+              <section> <a target="_blank" href="{TTK_VIDEO_URL}">Ver en TikTok</a> </section>
+            </blockquote>
+            <script async src="https://www.tiktok.com/embed.js"></script>
+            """,
+            height=680,
+        )
+    except Exception:
+        st.link_button("Ver video en TikTok", TTK_VIDEO_URL)
 
 
