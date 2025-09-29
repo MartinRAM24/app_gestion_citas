@@ -175,7 +175,7 @@ with tab_social:
 
     # Embed oficial de TikTok
     st.components.v1.iframe(
-        src=TTK_EMBED_URL,
+        src=TTK_EMBED_SRC,
         height=540,
         scrolling=False,
     )
