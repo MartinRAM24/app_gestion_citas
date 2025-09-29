@@ -8,30 +8,43 @@ from psycopg import errors as pg_errors
 import streamlit as st
 import requests
 
+# --- helpers seguros para secrets ---
+def _sget(key: str, default=None):
+    try:
+        # Streamlit: si existe secrets.toml lo usa; si no, lanza excepción
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+def _sget_block(block: str) -> dict:
+    try:
+        return dict(st.secrets.get(block, {}))
+    except Exception:
+        return {}
+
 # ---------- Config ----------
 HORA_INICIO: time = time(9, 0)
 HORA_FIN:    time = time(17, 0)
 PASO_MIN:    int  = 30
-BLOQUEO_DIAS_MIN: int = 2   # hoy/mañana bloqueados → pacientes desde día 3
+BLOQUEO_DIAS_MIN: int = 2
 
-# DB URL: prioriza ENV (Railway) y luego secrets (Streamlit)
-NEON_URL = os.getenv("NEON_DATABASE_URL") or st.secrets.get("NEON_DATABASE_URL")
+# Prioriza ENV (Railway) y luego secrets (Streamlit)
+NEON_URL = os.getenv("NEON_DATABASE_URL") or _sget("NEON_DATABASE_URL")
 
-# Admin: acepta ADMIN_* o CARMEN_* (para compatibilidad hacia atrás)
 ADMIN_USER = (
     os.getenv("ADMIN_USER")
     or os.getenv("CARMEN_USER")
-    or st.secrets.get("ADMIN_USER")
-    or st.secrets.get("CARMEN_USER", "carmen")
+    or _sget("ADMIN_USER")
+    or _sget("CARMEN_USER", "carmen")
 )
 ADMIN_PASSWORD = (
     os.getenv("ADMIN_PASSWORD")
     or os.getenv("CARMEN_PASSWORD")
-    or st.secrets.get("ADMIN_PASSWORD")
-    or st.secrets.get("CARMEN_PASSWORD")
+    or _sget("ADMIN_PASSWORD")
+    or _sget("CARMEN_PASSWORD")
 )
 
-PEPPER = (st.secrets.get("PASSWORD_PEPPER") or os.getenv("PASSWORD_PEPPER") or "").encode()
+PEPPER = (os.getenv("PASSWORD_PEPPER") or _sget("PASSWORD_PEPPER", "") or "").encode()
 
 def normalize_tel(t: str) -> str:
     return re.sub(r'[-\s]+', '', t.strip().lower())
@@ -269,50 +282,30 @@ def eliminar_cita(cita_id: int) -> int:
 
 def _get_whatsapp_cfg() -> dict:
     """
-    Obtiene config de WhatsApp desde:
-    1) st.secrets["whatsapp"] (Streamlit),
-    2) variables de entorno planas (Railway): WHATSAPP_TOKEN / _PHONE_NUMBER_ID / _TEMPLATE / _LANG
+    1) ENV (Railway): WHATSAPP_TOKEN / _PHONE_NUMBER_ID / _TEMPLATE / _LANG
+    2) secrets.toml (Streamlit): [whatsapp] TOKEN / PHONE_NUMBER_ID / TEMPLATE / LANG
     """
-    # 1) Bloque en secrets.toml
-    if "whatsapp" in st.secrets:
-        sec = st.secrets["whatsapp"]
-        return {
-            "TOKEN": sec.get("TOKEN"),
-            "PHONE_NUMBER_ID": sec.get("PHONE_NUMBER_ID"),
-            "TEMPLATE": sec.get("TEMPLATE"),
-            "LANG": sec.get("LANG", "es_MX"),
-        }
-    # 2) ENV (Railway)
-    return {
+    env_cfg = {
         "TOKEN": os.getenv("WHATSAPP_TOKEN"),
         "PHONE_NUMBER_ID": os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
         "TEMPLATE": os.getenv("WHATSAPP_TEMPLATE"),
-        "LANG": os.getenv("WHATSAPP_LANG", "es_MX"),
+        "LANG": os.getenv("WHATSAPP_LANG"),
+    }
+    # Si en ENV ya está completo, úsalo
+    if env_cfg["TOKEN"] and env_cfg["PHONE_NUMBER_ID"] and env_cfg["TEMPLATE"]:
+        env_cfg["LANG"] = env_cfg["LANG"] or "es_MX"
+        return env_cfg
+
+    # Si no, intenta secrets.toml
+    sec = _sget_block("whatsapp")
+    return {
+        "TOKEN": sec.get("TOKEN"),
+        "PHONE_NUMBER_ID": sec.get("PHONE_NUMBER_ID"),
+        "TEMPLATE": sec.get("TEMPLATE"),
+        "LANG": sec.get("LANG", "es_MX"),
     }
 
-def _fmt_fecha_es(v) -> str:
-    try: return pd.to_datetime(v).strftime("%d/%m/%Y")
-    except Exception: return str(v)
-
-def _fmt_hora_es(v) -> str:
-    try: return pd.to_datetime(str(v)).strftime("%H:%M")
-    except Exception: return str(v)
-
-def _to_e164_mx(tel: str) -> str | None:
-    """Normaliza teléfonos a E.164 (+52XXXXXXXXXX si recibe 10 dígitos de MX)."""
-    if not tel: return None
-    t = re.sub(r"\D+", "", str(tel))
-    if not t: return None
-    if str(tel).startswith("+"):
-        return str(tel)
-    if t.startswith("52"):
-        return f"+{t}"
-    if len(t) == 10:
-        return f"+52{t}"
-    return None
-
 def _wa_send_meta(to_e164: str, nombre: str, fecha_txt: str, hora_txt: str):
-    """Envía mensaje por plantilla (WhatsApp Cloud API / Meta)."""
     cfg = _get_whatsapp_cfg()
     missing = [k for k in ("TOKEN", "PHONE_NUMBER_ID", "TEMPLATE") if not cfg.get(k)]
     if missing:
@@ -342,6 +335,28 @@ def _wa_send_meta(to_e164: str, nombre: str, fecha_txt: str, hora_txt: str):
     r = requests.post(url, headers=headers, json=payload, timeout=15)
     r.raise_for_status()
     return r.json()
+
+
+def _fmt_fecha_es(v) -> str:
+    try: return pd.to_datetime(v).strftime("%d/%m/%Y")
+    except Exception: return str(v)
+
+def _fmt_hora_es(v) -> str:
+    try: return pd.to_datetime(str(v)).strftime("%H:%M")
+    except Exception: return str(v)
+
+def _to_e164_mx(tel: str) -> str | None:
+    """Normaliza teléfonos a E.164 (+52XXXXXXXXXX si recibe 10 dígitos de MX)."""
+    if not tel: return None
+    t = re.sub(r"\D+", "", str(tel))
+    if not t: return None
+    if str(tel).startswith("+"):
+        return str(tel)
+    if t.startswith("52"):
+        return f"+{t}"
+    if len(t) == 10:
+        return f"+52{t}"
+    return None
 
 def citas_manana():
     """Citas de mañana (fecha = hoy + 1) con datos de paciente."""
