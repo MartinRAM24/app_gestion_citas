@@ -119,6 +119,13 @@ st.markdown(
 # Estado base
 st.session_state.setdefault("role", None)
 st.session_state.setdefault("paciente", None)
+# Redirección centralizada según rol guardado
+role = st.session_state.get("role")
+if role == "admin":
+    st.switch_page("pages/2_Carmen_Admin.py")
+elif role == "paciente" and st.session_state.get("paciente"):
+    st.switch_page("pages/1_Paciente_Dashboard.py")
+
 
 tab_admin, tab_pac = st.tabs(["👩‍⚕️ Coach", "🧑 Paciente"])
 
@@ -130,14 +137,12 @@ with tab_admin:
         p = st.text_input("Contraseña", type="password")
         ok = st.form_submit_button("Entrar como Coach")
     if ok:
-        # solo validar password
-        from modules.core import ADMIN_PASSWORD  # si lo exportas; o crea helper
-
         if p and is_admin_ok("Carmen", p):
             st.session_state.role = "admin"
-            st.switch_page("pages/2_Carmen_Admin.py")
+            st.rerun()         # <- en vez de switch_page aquí
         else:
             st.error("Credenciales inválidas.")
+
 
 # ---- Paciente
 with tab_pac:
@@ -154,7 +159,7 @@ with tab_pac:
             if user:
                 st.session_state.role = "paciente"
                 st.session_state.paciente = user
-                st.switch_page("pages/1_Paciente_Dashboard.py")
+                st.rerun()       # <- aquí también
             else:
                 st.error("Teléfono o contraseña incorrectos.")
     else:
@@ -172,5 +177,8 @@ with tab_pac:
             else:
                 pid = registrar_paciente(nombre, tel, pw1)
                 st.session_state.role = "paciente"
-                st.session_state.paciente = {"id": pid, "nombre": nombre.strip(), "telefono": normalize_tel(tel)}
-                st.switch_page("pages/1_Paciente_Dashboard.py")
+                st.session_state.paciente = {
+                    "id": pid, "nombre": nombre.strip(), "telefono": normalize_tel(tel)
+                }
+                st.rerun()       # <- aquí también
+

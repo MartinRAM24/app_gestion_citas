@@ -148,4 +148,5 @@ st.divider()
 if st.button("🚪 Cerrar sesión"):
     st.session_state.role = None
     st.session_state.paciente = None
-    st.switch_page("pages/0_Login.py")
+    st.rerun()
+
