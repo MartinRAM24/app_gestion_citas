@@ -124,6 +124,7 @@ TTK_EMBED_SRC = f"https://www.tiktok.com/embed/v2/video/{TTK_VIDEO_ID}?lang=es&a
 WA_NUMBER = "523511974405"  # 52 + número sin signos
 WA_TEXT = "Hola Carmen, quiero una consulta."
 wa_link = f"https://wa.me/{WA_NUMBER}?text={quote_plus(WA_TEXT)}"
+
 # ---- 📣 Redes (a la derecha)
 with tab_social:
     st.subheader("Conecta con Carmen")
@@ -170,21 +171,13 @@ with tab_social:
         )
 
     st.markdown("---")
-    st.caption("Video destacado de TikTok")
+    st.caption("🎥 Video destacado de TikTok")
 
-    # Embed centrado con fondo dark
-    st.components.v1.html(
-        f"""
-        <div style="display:flex; justify-content:center; background:transparent;">
-          <iframe
-            src="{TTK_EMBED_SRC}"
-            style="border:none; width:360px; height:640px;"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowfullscreen
-          ></iframe>
-        </div>
-        """,
-        height=700,
+    # Embed oficial de TikTok
+    st.components.v1.iframe(
+        src=TTK_EMBED_URL,
+        height=540,
+        scrolling=False,
     )
 
 
