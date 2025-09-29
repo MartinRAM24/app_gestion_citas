@@ -1,6 +1,7 @@
 import streamlit as st
 from modules.core import is_admin_ok, login_paciente, registrar_paciente, normalize_tel
 import base64
+from urllib.parse import quote_plus
 
 CUSTOM_CSS = """
 /* Sidebar */
@@ -118,10 +119,10 @@ with tab_social:
     IG_URL = "https://www.instagram.com/carmen._ochoa?igsh=dnd2aGt5a25xYTg0"
     TTK_PROFILE_URL = "https://www.tiktok.com/@carmen_ochoa123?_t=ZS-907SiUuhJDw&_r=1"
     TTK_VIDEO_URL = "https://vt.tiktok.com/ZSDnmFBK2/"
-    # WhatsApp: ajusta el prefijo país si hace falta (52 = México)
-    WA_NUMBER = "523511974405"
-    WA_TEXT = "Hola Coach Carmen, vengo de tu web y me gustaría agendar una cita."
-    WA_URL = f"https://wa.me/{WA_NUMBER}?text={st.utils._quote(WA_TEXT)}"
+    # Número con LADA del país (ej: 52 para México) + número sin signos
+    WA_NUMBER = "523511974405"  # 52 + 3511974405
+    WA_TEXT = "Hola Carmen, quiero una consulta."
+    wa_link = f"https://wa.me/{WA_NUMBER}?text={quote_plus(WA_TEXT)}"
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -146,13 +147,9 @@ with tab_social:
         )
     with c3:
         st.markdown(
-            f"""
-            <a href="{WA_URL}" target="_blank" rel="noopener">
-                <img src="assets/wa.png" style="width:120px; border-radius:12px;">
-            </a>
-            <div style="margin-top:6px; text-align:center;"><a href="{WA_URL}" target="_blank">WhatsApp</a></div>
-            """,
-            unsafe_allow_html=True
+            f'<a href="{wa_link}" target="_blank">'
+            f'<img src="https://cdn-icons-png.flaticon.com/512/733/733585.png" width="80" alt="WhatsApp" /></a>',
+            unsafe_allow_html=True,
         )
 
     st.markdown("---")
