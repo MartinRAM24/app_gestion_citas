@@ -174,15 +174,16 @@ with tab_social:
     # Embed oficial de TikTok
     st.components.v1.html(
         f"""
-        <div style="display:flex; justify-content:center;">
+        <div style="display:flex; justify-content:center; background:#0E1117; padding:20px;">
             <blockquote class="tiktok-embed" cite="{TTK_EMBED_URL}" data-video-id="" style="max-width: 350px; min-width: 325px;">
               <section><a target="_blank" href="{TTK_EMBED_URL}">Ver en TikTok</a></section>
             </blockquote>
             <script async src="https://www.tiktok.com/embed.js"></script>
         </div>
         """,
-        height=700,
+        height=720,
     )
+
 
 
 
