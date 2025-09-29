@@ -117,9 +117,10 @@ wa_b64 = get_base64_of_bin_file("assets/wa.png")
 
 # Links
 IG_URL = "https://www.instagram.com/carmen._ochoa?igsh=dnd2aGt5a25xYTg0"
+# TikTok
 TTK_PROFILE_URL = "https://www.tiktok.com/@carmen_ochoa123?_t=ZS-907SiUuhJDw&_r=1"
 TTK_VIDEO_ID = "7521784372152831240"
-TTK_EMBED_SRC = f"https://www.tiktok.com/embed/v2/video/{TTK_VIDEO_ID}?lang=es&autoplay=0&theme=dark"
+TTK_EMBED_URL = f"https://www.tiktok.com/embed/{TTK_VIDEO_ID}"
 
 WA_NUMBER = "523511974405"  # 52 + número sin signos
 WA_TEXT = "Hola Carmen, quiero una consulta."
@@ -175,7 +176,7 @@ with tab_social:
 
     # Embed oficial de TikTok
     st.components.v1.iframe(
-        src=TTK_EMBED_SRC,
+        src=TTK_EMBED_URL,
         height=540,
         scrolling=False,
     )
