@@ -178,6 +178,7 @@ with tab_social:
             <blockquote class="tiktok-embed" cite="{TTK_EMBED_URL}" data-video-id="" style="max-width: 350px; min-width: 325px;">
               <section><a target="_blank" href="{TTK_EMBED_URL}">Ver en TikTok</a></section>
             </blockquote>
+            <script async src="https://www.tiktok.com/embed.js"></script>
         </div>
         """,
         height=700,
