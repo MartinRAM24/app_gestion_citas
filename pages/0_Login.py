@@ -172,11 +172,18 @@ with tab_social:
     st.caption("🎥 Video destacado de TikTok")
 
     # Embed oficial de TikTok
-    st.components.v1.iframe(
-        src=TTK_EMBED_URL,
-        height=540,
-        scrolling=False,
+    st.components.v1.html(
+        f"""
+        <div style="display:flex; justify-content:center;">
+            <blockquote class="tiktok-embed" cite="{TTK_VIDEO_URL}" data-video-id="" style="max-width: 350px; min-width: 325px;">
+              <section><a target="_blank" href="{TTK_VIDEO_URL}">Ver en TikTok</a></section>
+            </blockquote>
+            <script async src="https://www.tiktok.com/embed.js"></script>
+        </div>
+        """,
+        height=700,
     )
+
 
 
 
