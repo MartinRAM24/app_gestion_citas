@@ -427,42 +427,49 @@ def _tel_norm(s: str | None) -> str | None:
         return None
     return re.sub(r"\D", "", s)
 
-def listar_pacientes(q: str | None = None, limit: int = 100) -> pd.DataFrame:
+def listar_pacientes(q: str | None = None, limit: int = 100, solo_con_telefono: bool = True) -> pd.DataFrame:
     """
-    Devuelve id, nombre, telefono de la tabla pacientes.
-    Si q viene, busca por nombre (ILIKE) o por teléfono normalizado.
+    Devuelve (id, nombre, telefono) desde pacientes.
+    Por defecto, SOLO incluye pacientes con teléfono no vacío.
     """
+    tel_ok = "regexp_replace(coalesce(telefono,''), '\\D', '', 'g') <> ''"
+    base_where = f"WHERE {tel_ok}" if solo_con_telefono else "WHERE TRUE"
+
     with psycopg.connect(NEON_URL) as con:
         if q:
             q_name = f"%{q.strip()}%"
             q_tel  = _tel_norm(q)
             if q_tel:
-                sql = """
+                sql = f"""
                     SELECT id, nombre, telefono
                     FROM pacientes
-                    WHERE lower(nombre) ILIKE lower(%s)
-                       OR regexp_replace(coalesce(telefono,''), '\D', '', 'g') LIKE %s
+                    {base_where}
+                      AND (lower(nombre) ILIKE lower(%s)
+                           OR regexp_replace(coalesce(telefono,''), '\\D', '', 'g') LIKE %s)
                     ORDER BY nombre
                     LIMIT %s
                 """
                 return pd.read_sql(sql, con, params=[q_name, f"%{q_tel}%", limit])
             else:
-                sql = """
+                sql = f"""
                     SELECT id, nombre, telefono
                     FROM pacientes
-                    WHERE lower(nombre) ILIKE lower(%s)
+                    {base_where}
+                      AND lower(nombre) ILIKE lower(%s)
                     ORDER BY nombre
                     LIMIT %s
                 """
                 return pd.read_sql(sql, con, params=[q_name, limit])
         else:
-            sql = """
+            sql = f"""
                 SELECT id, nombre, telefono
                 FROM pacientes
+                {base_where}
                 ORDER BY nombre
                 LIMIT %s
             """
             return pd.read_sql(sql, con, params=[limit])
+
 
 def crear_cita_para_paciente(fecha: date, hora: dt_time, paciente_id: int, nota: str | None = None) -> int:
     """
