@@ -153,56 +153,74 @@ with colf:
             nombre_def = r0.get("nombre") or ""
             tel_def    = r0.get("telefono") or ""
 
-    nombre_nuevo = st.text_input(
-        "Nombre del paciente (si es nuevo)",
-        value=nombre_def,
-        placeholder="Escribe el nombre SOLO si no seleccionaste uno registrado",
-        key="nombre_nuevo"
-    )
-    tel = st.text_input("Teléfono (opcional)", value=tel_def, placeholder="Puedes dejarlo vacío", key="tel_nuevo")
-    nota = st.text_area("Nota (opcional)", key="nota_nueva")
+        # ... (todo igual arriba)
 
-    # Choque de horario (misma hora ocupada)
-    df_dia = citas_por_dia(fecha_sel)
-    ocupado, nombre_ocupa = False, None
-    if slot and not df_dia.empty and "hora" in df_dia.columns:
-        df_dia = df_dia.copy()
-        df_dia["hora_txt"] = df_dia["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
-        fila_slot = df_dia[df_dia["hora_txt"] == slot]
-        if not fila_slot.empty and fila_slot["id_cita"].notna().any():
-            ocupado = True
-            try:
-                nombre_ocupa = fila_slot.iloc[0].get("nombre")
-            except Exception:
-                nombre_ocupa = None
+        nombre_nuevo = st.text_input(
+            "Nombre del paciente (si es nuevo)",
+            value=nombre_def,
+            placeholder="Escribe el nombre SOLO si no seleccionaste uno registrado",
+            key="nombre_nuevo"
+        )
+        tel = st.text_input("Teléfono (opcional)", value=tel_def, placeholder="Puedes dejarlo vacío", key="tel_nuevo")
+        nota = st.text_area("Nota (opcional)", key="nota_nueva")
 
-    if st.button("➕ Crear cita", key="btn_crear"):
-        if not slot:
-            st.error("Selecciona un día con horarios disponibles.")
-        elif ocupado:
-            detalle = f" por {nombre_ocupa}" if (nombre_ocupa is not None and str(nombre_ocupa).strip()) else ""
-            st.error(f"Ya existe una cita a las {slot}{detalle}. Elige otra hora.")
-        else:
-            try:
-                h = datetime.strptime(slot, "%H:%M").time()
-                if sel_id is not None:
-                    # Paciente registrado
-                    crear_cita_para_paciente(fecha_sel, h, sel_id, nota or None)
-                else:
-                    # Nuevo paciente (tel opcional)
-                    if not nombre_nuevo.strip():
-                        st.error("Escribe el nombre del paciente (o selecciona uno registrado arriba).")
-                        st.stop()
-                    crear_cita_manual(fecha_sel, h, nombre_nuevo.strip(), (tel.strip() or None), nota or None)
-                st.success("Cita creada.")
-                st.rerun()
-            except Exception as e:
-                err = str(e)
-                if "uniq_fecha_hora" in err or "UniqueViolation" in err:
-                    st.error(f"Esa hora ya está ocupada ({slot}). Elige otra.")
-                else:
-                    st.error(f"No se pudo crear la cita: {e}")
 
+        # --- normalizadores seguros (EVITAN NoneType.strip) ---
+        def _s(x):  # safe strip
+            return (x or "").strip()
+
+
+        # Choque de horario (misma hora ocupada)
+        df_dia = citas_por_dia(fecha_sel)
+        ocupado, nombre_ocupa = False, None
+        if slot and not df_dia.empty and "hora" in df_dia.columns:
+            df_dia = df_dia.copy()
+            df_dia["hora_txt"] = df_dia["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
+            fila_slot = df_dia[df_dia["hora_txt"] == slot]
+            if not fila_slot.empty and fila_slot["id_cita"].notna().any():
+                ocupado = True
+                try:
+                    nombre_ocupa = fila_slot.iloc[0].get("nombre")
+                except Exception:
+                    nombre_ocupa = None
+
+        if st.button("➕ Crear cita", key="btn_crear"):
+            if not slot:
+                st.error("Selecciona un día con horarios disponibles.")
+            elif ocupado:
+                detalle = f" por {nombre_ocupa}" if (nombre_ocupa is not None and str(nombre_ocupa).strip()) else ""
+                st.error(f"Ya existe una cita a las {slot}{detalle}. Elige otra hora.")
+            else:
+                try:
+                    h = datetime.strptime(slot, "%H:%M").time()
+
+                    if sel_id is not None:
+                        # Paciente registrado
+                        crear_cita_para_paciente(fecha_sel, h, sel_id, _s(nota))  # <- pasa string seguro
+                    else:
+                        # Nuevo paciente (tel opcional)
+                        if not _s(nombre_nuevo):
+                            st.error("Escribe el nombre del paciente (o selecciona uno registrado arriba).")
+                            st.stop()
+
+                        # <- pasa strings seguros, NUNCA None (evita NoneType.strip)
+                        crear_cita_manual(
+                            fecha_sel,
+                            h,
+                            _s(nombre_nuevo),
+                            _s(tel),  # si está vacío será "", no None
+                            _s(nota) or None  # si quieres guardar NULL en DB cuando esté vacío
+                        )
+
+                    st.success("Cita creada.")
+                    st.rerun()
+
+                except Exception as e:
+                    err = str(e)
+                    if "uniq_fecha_hora" in err or "UniqueViolation" in err:
+                        st.error(f"Esa hora ya está ocupada ({slot}). Elige otra.")
+                    else:
+                        st.error(f"No se pudo crear la cita: {e}")
 
 with colr:
     st.subheader(f"Citas para {fecha_sel.strftime('%d-%m-%Y')}")
