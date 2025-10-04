@@ -4,7 +4,8 @@ import pandas as pd
 from modules.core import (
     generar_slots, crear_cita_manual, citas_por_dia,
     actualizar_cita, eliminar_cita,
-    listar_pacientes, crear_cita_para_paciente)
+    listar_pacientes, crear_cita_para_paciente
+)
 
 st.set_page_config(page_title="Carmen — Panel", page_icon="🗂️", layout="wide")
 
@@ -27,7 +28,7 @@ main.block-container {
 /* Tarjetas internas (expanders, tabs, forms) */
 section[data-testid="stSidebarNav"] { background: transparent; }
 
-/* ===== Expanders: gris medio agradable ===== */
+/* ===== Expanders ===== */
 div[data-testid="stExpander"] > details {
   background: #2B2F36 !important;
   border: 1px solid #3A3F47 !important;
@@ -42,7 +43,7 @@ div[data-testid="stExpander"] summary {
   border-radius: 12px !important;
 }
 
-/* ===== Inputs en gris ===== */
+/* ===== Inputs ===== */
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
 [data-testid="stTextArea"] textarea,
@@ -107,7 +108,6 @@ if st.session_state.get("role") != "admin":
 
 st.title("🗂️ Panel de Carmen")
 
-
 colf, colr = st.columns([1, 2], gap="large")
 
 with colf:
@@ -115,37 +115,43 @@ with colf:
 
     # Horas del día
     opts_admin = [t.strftime("%H:%M") for t in generar_slots(fecha_sel)]
-    slot = st.selectbox("Hora", opts_admin) if opts_admin else None
+    slot = st.selectbox("Hora", opts_admin, key="hora_admin") if opts_admin else None
     if not opts_admin:
         st.info("Día no laborable o sin bloques disponibles.")
 
-    # ✅ Buscador de pacientes registrados (DB)
-    q = st.text_input("Buscar paciente (nombre o teléfono)", placeholder="Ej. Ana / 3511234567")
+    # Buscador de pacientes registrados (DB)
+    q = st.text_input("Buscar paciente (nombre o teléfono)", placeholder="Ej. Ana / 3511234567", key="buscar_pac")
     df_pac = listar_pacientes(q) if q.strip() else listar_pacientes(None)
+
+    if q.strip() and df_pac.empty:
+        st.info("Sin coincidencias. Prueba otro nombre o teléfono, o crea paciente nuevo abajo.")
 
     # Construimos opciones “amigables” → (label, id)
     opciones = [("— Nuevo paciente —", None)]
-    for _, r in df_pac.iterrows():
-        tel_txt = f" · {r['telefono']}" if r.get("telefono") else ""
-        label = f"{r['nombre']}{tel_txt} · (ID {int(r['id'])})"
-        opciones.append((label, int(r["id"])))
+    if not df_pac.empty:
+        for _, r in df_pac.iterrows():
+            tel_v = r.get("telefono") or ""
+            tel_txt = f" · {tel_v}" if tel_v else ""
+            label = f"{r['nombre']}{tel_txt} · (ID {int(r['id'])})"
+            opciones.append((label, int(r["id"])))
 
     labels = [o[0] for o in opciones]
-    sel_idx = st.selectbox("Paciente registrado (opcional)", labels, index=0)
-    sel_id = dict(opciones).get(sel_idx, None)
+    sel_label = st.selectbox("Paciente registrado (opcional)", labels, index=0, key="pac_sel")
+    sel_id = dict(opciones).get(sel_label, None)
 
-    # Nombre/telefono manuales (para nuevo paciente o para editar)
-    # Si selecciona existente, proponemos nombre/tel como “value”
+    # Nombre/telefono (para nuevo o para editar propuesto desde el seleccionado)
     nombre_def = ""
     tel_def = ""
-    if sel_id is not None:
-        r0 = df_pac[df_pac["id"] == sel_id].iloc[0]
-        nombre_def = r0.get("nombre") or ""
-        tel_def = r0.get("telefono") or ""
+    if sel_id is not None and not df_pac.empty:
+        r0 = df_pac.loc[df_pac["id"] == sel_id]
+        if not r0.empty:
+            r0 = r0.iloc[0]
+            nombre_def = r0.get("nombre") or ""
+            tel_def    = r0.get("telefono") or ""
 
-    nombre_nuevo = st.text_input("Nombre del paciente", value=nombre_def, placeholder="Obligatorio si no seleccionas uno registrado")
-    tel = st.text_input("Teléfono (opcional)", value=tel_def, placeholder="Puedes dejarlo vacío")
-    nota = st.text_area("Nota (opcional)")
+    nombre_nuevo = st.text_input("Nombre del paciente", value=nombre_def, placeholder="Obligatorio si no seleccionas uno registrado", key="nombre_nuevo")
+    tel = st.text_input("Teléfono (opcional)", value=tel_def, placeholder="Puedes dejarlo vacío", key="tel_nuevo")
+    nota = st.text_area("Nota (opcional)", key="nota_nueva")
 
     # Choque de horario (misma hora ocupada)
     df_dia = citas_por_dia(fecha_sel)
@@ -157,29 +163,37 @@ with colf:
         fila_slot = df_dia[df_dia["hora_txt"] == slot]
         if not fila_slot.empty and fila_slot["id_cita"].notna().any():
             ocupado = True
-            nombre_ocupa = fila_slot.iloc[0].get("nombre") or ""
+            try:
+                nombre_ocupa = fila_slot.iloc[0].get("nombre")
+            except Exception:
+                nombre_ocupa = None
 
-    if st.button("➕ Crear cita"):
+    if st.button("➕ Crear cita", key="btn_crear"):
         if not slot:
             st.error("Selecciona un día con horarios disponibles.")
         elif ocupado:
-            detalle = f" por {nombre_ocupa}" if nombre_ocupa else ""
+            detalle = f" por {nombre_ocupa}" if (nombre_ocupa is not None and str(nombre_ocupa).strip()) else ""
             st.error(f"Ya existe una cita a las {slot}{detalle}. Elige otra hora.")
         else:
             try:
                 h = datetime.strptime(slot, "%H:%M").time()
                 if sel_id is not None:
-                    # ✅ usa el paciente registrado
+                    # Paciente registrado
                     crear_cita_para_paciente(fecha_sel, h, sel_id, nota or None)
                 else:
-                    # ✅ crea con nombre nuevo (tel sigue siendo opcional)
+                    # Nuevo paciente (tel opcional)
                     if not nombre_nuevo.strip():
                         st.error("Indica el nombre del paciente (o selecciona uno registrado).")
                         st.stop()
                     crear_cita_manual(fecha_sel, h, nombre_nuevo.strip(), (tel.strip() or None), nota or None)
-                st.success("Cita creada."); st.rerun()
+                st.success("Cita creada.")
+                st.rerun()
             except Exception as e:
-                st.error(f"No se pudo crear la cita: {e}")
+                err = str(e)
+                if "uniq_fecha_hora" in err or "UniqueViolation" in err:
+                    st.error(f"Esa hora ya está ocupada ({slot}). Elige otra.")
+                else:
+                    st.error(f"No se pudo crear la cita: {e}")
 
 with colr:
     st.subheader(f"Citas para {fecha_sel.strftime('%d-%m-%Y')}")
@@ -199,7 +213,8 @@ with colr:
         show["estado"] = show["id_cita"].apply(lambda x: "✅ libre" if pd.isna(x) else "🟡 ocupado")
         cols = ["hora_txt", "estado", "id_cita", "paciente_id", "nombre", "telefono", "nota"]
         for c in cols:
-            if c not in show.columns: show[c] = None
+            if c not in show.columns:
+                show[c] = None
         st.dataframe(show[cols], use_container_width=True)
     else:
         st.info("Domingo (no laborable).")
@@ -209,15 +224,15 @@ with colr:
     else:
         st.divider(); st.caption("Editar / eliminar cita")
         ids = df["id_cita"].astype(int).tolist()
-        cid = st.selectbox("ID cita", ids)
+        cid = st.selectbox("ID cita", ids, key="cid_edit")
         r = df[df.id_cita == cid].iloc[0]
 
-        # ✅ NEW/CHANGED: Teléfono opcional al editar
+        # Teléfono opcional al editar
         nombre_e = st.text_input("Nombre", (r.get("nombre") or ""), key="nombre_edit")
         tel_e    = st.text_input("Teléfono (opcional)", (r.get("telefono") or ""), key="tel_edit", placeholder="Puede quedar vacío")
         nota_e   = st.text_area("Nota", (r.get("nota") or ""), key="nota_edit")
 
-        if st.button("💾 Guardar cambios"):
+        if st.button("💾 Guardar cambios", key="btn_guardar"):
             if nombre_e.strip():
                 try:
                     actualizar_cita(int(cid), nombre_e.strip(), (tel_e.strip() or None), (nota_e or None))
@@ -228,8 +243,8 @@ with colr:
                 st.error("El nombre es obligatorio.")
 
         st.divider(); st.caption("Eliminar cita")
-        confirm = st.checkbox("Confirmar eliminación")
-        if st.button("🗑️ Eliminar", disabled=not confirm):
+        confirm = st.checkbox("Confirmar eliminación", key="chk_del")
+        if st.button("🗑️ Eliminar", disabled=not confirm, key="btn_del"):
             try:
                 n = eliminar_cita(int(cid))
                 st.success("Cita eliminada." if n else "La cita ya no existía.")
@@ -245,9 +260,9 @@ with colr:
 
     colA, colB = st.columns([1, 3])
     with colA:
-        dry = st.checkbox("Modo simulación (no envía)", value=True)
+        dry = st.checkbox("Modo simulación (no envía)", value=True, key="dry_wa")
 
-    if st.button("📨 Enviar recordatorios de mañana"):
+    if st.button("📨 Enviar recordatorios de mañana", key="btn_wa"):
         try:
             res = enviar_recordatorios_manana(dry_run=dry)
             if res["total"] == 0:
@@ -261,7 +276,8 @@ with colr:
             st.error(f"No se pudieron enviar los recordatorios: {e}")
 
 # Cerrar sesión
-if st.button("🚪 Cerrar sesión"):
+if st.button("🚪 Cerrar sesión", key="btn_logout"):
     st.session_state.role = None
     st.session_state.paciente = None
     st.rerun()
+
