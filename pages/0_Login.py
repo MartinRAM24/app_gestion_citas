@@ -57,7 +57,7 @@ elif role == "paciente" and st.session_state.get("paciente"):
 # =========================
 # Tabs (agregamos 📣 Redes)
 # =========================
-ENABLE_SOCIAL = False   # cambia a True si lo quieres activar
+ENABLE_SOCIAL = True   # cambia a True si lo quieres activar
 
 tab_coach, tab_pac, tab_social = st.tabs(["👩‍⚕️ Coach", "🧑 Paciente", "📣 Redes"])
 
