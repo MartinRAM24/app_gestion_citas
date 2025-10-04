@@ -119,15 +119,13 @@ with colf:
     if not opts_admin:
         st.info("Día no laborable o sin bloques disponibles.")
 
-    # Buscador de pacientes registrados (DB)
-    q = st.text_input("Buscar paciente (nombre o teléfono)", placeholder="Ej. Ana / 3511234567", key="buscar_pac")
-    df_pac = listar_pacientes(q) if q.strip() else listar_pacientes(None)
+    # ── Paciente: un solo control con buscador integrado ─────────────────────────
+    # Trae solo pacientes con teléfono (listar_pacientes por defecto ya filtra así)
+    df_pac = listar_pacientes(None)
 
-    if q.strip() and df_pac.empty:
-        st.info("Sin coincidencias. Prueba otro nombre o teléfono, o crea paciente nuevo abajo.")
-
-    # Construimos opciones “amigables” → (label, id)
-    opciones = [("— Nuevo paciente —", None)]
+    # Armamos opciones "amigables" → (label, id)
+    # 1ª opción actúa como "placeholder": si la dejas, significa NUEVO paciente.
+    opciones = [("🔎 Buscar/seleccionar paciente registrado…", None)]
     if not df_pac.empty:
         for _, r in df_pac.iterrows():
             tel_v = r.get("telefono") or ""
@@ -136,12 +134,18 @@ with colf:
             opciones.append((label, int(r["id"])))
 
     labels = [o[0] for o in opciones]
-    sel_label = st.selectbox("Paciente registrado (opcional)", labels, index=0, key="pac_sel")
+    sel_label = st.selectbox(
+        "Paciente (puedes escribir para buscar)",
+        labels,
+        index=0,
+        key="pac_sel",
+        help="Escribe parte del nombre o teléfono para filtrar. Si lo dejas en la primera opción, crea uno nuevo abajo."
+    )
     sel_id = dict(opciones).get(sel_label, None)
 
-    # Nombre/telefono (para nuevo o para editar propuesto desde el seleccionado)
-    nombre_def = ""
-    tel_def = ""
+    # Nombre/teléfono del formulario
+    # Si seleccionaste un paciente registrado, precargamos sus datos (teléfono sigue siendo opcional)
+    nombre_def, tel_def = "", ""
     if sel_id is not None and not df_pac.empty:
         r0 = df_pac.loc[df_pac["id"] == sel_id]
         if not r0.empty:
@@ -149,14 +153,18 @@ with colf:
             nombre_def = r0.get("nombre") or ""
             tel_def    = r0.get("telefono") or ""
 
-    nombre_nuevo = st.text_input("Nombre del paciente", value=nombre_def, placeholder="Obligatorio si no seleccionas uno registrado", key="nombre_nuevo")
+    nombre_nuevo = st.text_input(
+        "Nombre del paciente (si es nuevo)",
+        value=nombre_def,
+        placeholder="Escribe el nombre SOLO si no seleccionaste uno registrado",
+        key="nombre_nuevo"
+    )
     tel = st.text_input("Teléfono (opcional)", value=tel_def, placeholder="Puedes dejarlo vacío", key="tel_nuevo")
     nota = st.text_area("Nota (opcional)", key="nota_nueva")
 
     # Choque de horario (misma hora ocupada)
     df_dia = citas_por_dia(fecha_sel)
-    ocupado = False
-    nombre_ocupa = None
+    ocupado, nombre_ocupa = False, None
     if slot and not df_dia.empty and "hora" in df_dia.columns:
         df_dia = df_dia.copy()
         df_dia["hora_txt"] = df_dia["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
@@ -183,7 +191,7 @@ with colf:
                 else:
                     # Nuevo paciente (tel opcional)
                     if not nombre_nuevo.strip():
-                        st.error("Indica el nombre del paciente (o selecciona uno registrado).")
+                        st.error("Escribe el nombre del paciente (o selecciona uno registrado arriba).")
                         st.stop()
                     crear_cita_manual(fecha_sel, h, nombre_nuevo.strip(), (tel.strip() or None), nota or None)
                 st.success("Cita creada.")
@@ -194,6 +202,7 @@ with colf:
                     st.error(f"Esa hora ya está ocupada ({slot}). Elige otra.")
                 else:
                     st.error(f"No se pudo crear la cita: {e}")
+
 
 with colr:
     st.subheader(f"Citas para {fecha_sel.strftime('%d-%m-%Y')}")
