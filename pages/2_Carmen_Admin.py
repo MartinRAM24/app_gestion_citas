@@ -127,8 +127,8 @@ with colf:
     if st.button("➕ Crear cita"):
         if not slot:
             st.error("Selecciona un día con horarios disponibles.")
-        elif not (nombre.strip()):
-            st.error("Nombre es obligatorio.")
+        elif not (nombre.strip() and tel.strip()):
+            st.error("Nombre y teléfono son obligatorios.")
         else:
             crear_cita_manual(fecha_sel, datetime.strptime(slot, "%H:%M").time(), nombre, tel, nota or None)
             st.success("Cita creada."); st.rerun()
