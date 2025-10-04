@@ -7,6 +7,7 @@ import psycopg
 from psycopg import errors as pg_errors
 import streamlit as st
 import requests
+from datetime import time as dt_time
 
 # --- helpers seguros para secrets ---
 def _sget(key: str, default=None):
@@ -418,3 +419,62 @@ def enviar_recordatorios_manana(dry_run: bool = False) -> dict:
 
     return res
 
+# Asegúrate de tener ya NEON_URL definido en este módulo
+# NEON_URL = st.secrets.get("NEON_DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
+
+def _tel_norm(s: str | None) -> str | None:
+    if not s:
+        return None
+    return re.sub(r"\D", "", s)
+
+def listar_pacientes(q: str | None = None, limit: int = 100) -> pd.DataFrame:
+    """
+    Devuelve id, nombre, telefono de la tabla pacientes.
+    Si q viene, busca por nombre (ILIKE) o por teléfono normalizado.
+    """
+    with psycopg.connect(NEON_URL) as con:
+        if q:
+            q_name = f"%{q.strip()}%"
+            q_tel  = _tel_norm(q)
+            if q_tel:
+                sql = """
+                    SELECT id, nombre, telefono
+                    FROM pacientes
+                    WHERE lower(nombre) ILIKE lower(%s)
+                       OR regexp_replace(coalesce(telefono,''), '\D', '', 'g') LIKE %s
+                    ORDER BY nombre
+                    LIMIT %s
+                """
+                return pd.read_sql(sql, con, params=[q_name, f"%{q_tel}%", limit])
+            else:
+                sql = """
+                    SELECT id, nombre, telefono
+                    FROM pacientes
+                    WHERE lower(nombre) ILIKE lower(%s)
+                    ORDER BY nombre
+                    LIMIT %s
+                """
+                return pd.read_sql(sql, con, params=[q_name, limit])
+        else:
+            sql = """
+                SELECT id, nombre, telefono
+                FROM pacientes
+                ORDER BY nombre
+                LIMIT %s
+            """
+            return pd.read_sql(sql, con, params=[limit])
+
+def crear_cita_para_paciente(fecha: date, hora: dt_time, paciente_id: int, nota: str | None = None) -> int:
+    """
+    Busca nombre/teléfono del paciente y llama a crear_cita_manual para insertar la cita.
+    Retorna id_cita creado (o lanza excepción).
+    """
+    with psycopg.connect(NEON_URL, autocommit=True) as con:
+        with con.cursor() as cur:
+            cur.execute("SELECT nombre, telefono FROM pacientes WHERE id = %s", (paciente_id,))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("Paciente no encontrado.")
+            nombre, telefono = row
+            # reutiliza tu función existente:
+            return crear_cita_manual(fecha, hora, nombre, telefono, nota)

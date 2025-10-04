@@ -3,8 +3,8 @@ from datetime import date, datetime
 import pandas as pd
 from modules.core import (
     generar_slots, crear_cita_manual, citas_por_dia,
-    actualizar_cita, eliminar_cita
-)
+    actualizar_cita, eliminar_cita,
+    listar_pacientes, crear_cita_para_paciente)
 
 st.set_page_config(page_title="Carmen — Panel", page_icon="🗂️", layout="wide")
 
@@ -107,93 +107,77 @@ if st.session_state.get("role") != "admin":
 
 st.title("🗂️ Panel de Carmen")
 
-# ✅ NEW/CHANGED: cache simple de pacientes en sesión
-if "pacientes_cache" not in st.session_state:
-    st.session_state["pacientes_cache"] = []  # lista de nombres únicos
 
 colf, colr = st.columns([1, 2], gap="large")
 
-# ✅ NEW/CHANGED: cargamos citas del día primero para reutilizar en ambos paneles
 with colf:
     fecha_sel = st.date_input("Día", value=date.today(), key="fecha_admin")
 
-# Cargar citas del día (visible para ambos contenedores)
-df_dia = citas_por_dia(fecha_sel)
-# Actualizar cache con nombres del día
-if not df_dia.empty and "nombre" in df_dia.columns:
-    nuevos = [n for n in df_dia["nombre"].dropna().astype(str).str.strip().unique() if n]
-    # fusionar sin duplicar (case-insensitive por sanidad)
-    cache_lower = {x.lower(): x for x in st.session_state["pacientes_cache"]}
-    for n in nuevos:
-        if n.lower() not in cache_lower:
-            st.session_state["pacientes_cache"].append(n)
-
-with colf:
-    # Slots disponibles (de admin)
+    # Horas del día
     opts_admin = [t.strftime("%H:%M") for t in generar_slots(fecha_sel)]
     slot = st.selectbox("Hora", opts_admin) if opts_admin else None
     if not opts_admin:
         st.info("Día no laborable o sin bloques disponibles.")
 
-    # ✅ NEW/CHANGED: Selección de paciente existente O nombre nuevo
-    opciones_pacientes = ["—"] + sorted(st.session_state["pacientes_cache"], key=lambda x: x.lower())
-    sel_existente = st.selectbox("Paciente registrado (opcional)", opciones_pacientes, index=0, help="Puedes elegir uno ya registrado o escribir uno nuevo abajo.")
-    nombre_nuevo = st.text_input("Nombre del paciente (nuevo)", placeholder="Escribe un nombre si no seleccionaste uno existente")
+    # ✅ Buscador de pacientes registrados (DB)
+    q = st.text_input("Buscar paciente (nombre o teléfono)", placeholder="Ej. Ana / 3511234567")
+    df_pac = listar_pacientes(q) if q.strip() else listar_pacientes(None)
 
-    # El teléfono pasa a ser OPCIONAL
-    tel = st.text_input("Teléfono (opcional)", placeholder="Puedes dejarlo vacío")
+    # Construimos opciones “amigables” → (label, id)
+    opciones = [("— Nuevo paciente —", None)]
+    for _, r in df_pac.iterrows():
+        tel_txt = f" · {r['telefono']}" if r.get("telefono") else ""
+        label = f"{r['nombre']}{tel_txt} · (ID {int(r['id'])})"
+        opciones.append((label, int(r["id"])))
+
+    labels = [o[0] for o in opciones]
+    sel_idx = st.selectbox("Paciente registrado (opcional)", labels, index=0)
+    sel_id = dict(opciones).get(sel_idx, None)
+
+    # Nombre/telefono manuales (para nuevo paciente o para editar)
+    # Si selecciona existente, proponemos nombre/tel como “value”
+    nombre_def = ""
+    tel_def = ""
+    if sel_id is not None:
+        r0 = df_pac[df_pac["id"] == sel_id].iloc[0]
+        nombre_def = r0.get("nombre") or ""
+        tel_def = r0.get("telefono") or ""
+
+    nombre_nuevo = st.text_input("Nombre del paciente", value=nombre_def, placeholder="Obligatorio si no seleccionas uno registrado")
+    tel = st.text_input("Teléfono (opcional)", value=tel_def, placeholder="Puedes dejarlo vacío")
     nota = st.text_area("Nota (opcional)")
 
-    # ✅ NEW/CHANGED: Resolver nombre final (prioriza seleccionado si hay)
-    nombre_final = None
-    if sel_existente != "—":
-        nombre_final = sel_existente
-    elif nombre_nuevo.strip():
-        nombre_final = nombre_nuevo.strip()
-
-    # ✅ NEW/CHANGED: Validación de choque de horario
-    # Consideramos ocupado si existe una cita con la misma hora exacta
+    # Choque de horario (misma hora ocupada)
+    df_dia = citas_por_dia(fecha_sel)
     ocupado = False
     nombre_ocupa = None
     if slot and not df_dia.empty and "hora" in df_dia.columns:
-        try:
-            # df_dia["hora"] es tipo time/datetime; comparamos HH:MM
-            df_dia = df_dia.copy()
-            df_dia["hora_txt"] = df_dia["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
-            fila_slot = df_dia[df_dia["hora_txt"] == slot]
-            if not fila_slot.empty and fila_slot["id_cita"].notna().any():
-                ocupado = True
-                try:
-                    nombre_ocupa = fila_slot.iloc[0].get("nombre") or ""
-                except Exception:
-                    nombre_ocupa = ""
-        except Exception:
-            pass
+        df_dia = df_dia.copy()
+        df_dia["hora_txt"] = df_dia["hora"].apply(lambda t: t.strftime("%H:%M") if pd.notna(t) else None)
+        fila_slot = df_dia[df_dia["hora_txt"] == slot]
+        if not fila_slot.empty and fila_slot["id_cita"].notna().any():
+            ocupado = True
+            nombre_ocupa = fila_slot.iloc[0].get("nombre") or ""
 
     if st.button("➕ Crear cita"):
         if not slot:
             st.error("Selecciona un día con horarios disponibles.")
-        elif not nombre_final:
-            st.error("Indica el paciente: selecciona uno registrado o escribe un nombre nuevo.")
         elif ocupado:
-            # ✅ NEW/CHANGED: Mensaje claro si ya hay una cita en esa hora
             detalle = f" por {nombre_ocupa}" if nombre_ocupa else ""
             st.error(f"Ya existe una cita a las {slot}{detalle}. Elige otra hora.")
         else:
-            # ✅ NEW/CHANGED: teléfono opcional → pasar None si viene vacío
             try:
-                crear_cita_manual(
-                    fecha_sel,
-                    datetime.strptime(slot, "%H:%M").time(),
-                    nombre_final,
-                    tel.strip() or None,
-                    nota or None
-                )
-                # Guardamos en cache si es nuevo
-                if nombre_final and nombre_final not in st.session_state["pacientes_cache"]:
-                    st.session_state["pacientes_cache"].append(nombre_final)
-                st.success("Cita creada.")
-                st.rerun()
+                h = datetime.strptime(slot, "%H:%M").time()
+                if sel_id is not None:
+                    # ✅ usa el paciente registrado
+                    crear_cita_para_paciente(fecha_sel, h, sel_id, nota or None)
+                else:
+                    # ✅ crea con nombre nuevo (tel sigue siendo opcional)
+                    if not nombre_nuevo.strip():
+                        st.error("Indica el nombre del paciente (o selecciona uno registrado).")
+                        st.stop()
+                    crear_cita_manual(fecha_sel, h, nombre_nuevo.strip(), (tel.strip() or None), nota or None)
+                st.success("Cita creada."); st.rerun()
             except Exception as e:
                 st.error(f"No se pudo crear la cita: {e}")
 
