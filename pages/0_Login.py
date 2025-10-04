@@ -31,7 +31,7 @@ def load_b64(path: str) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
-logo_base64 = load_b64("assets/Logo.png")
+logo_base64 = load_b64("assets/logo.png")
 
 st.markdown(
     f"""
