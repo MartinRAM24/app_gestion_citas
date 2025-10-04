@@ -36,7 +36,7 @@ logo_base64 = load_b64("assets/Logo.png")
 st.markdown(
     f"""
     <div style="text-align: center;">
-        <img src="data:image/png;base64,{logo_base64}" width="300">
+        <img src="data:image/png;base64,{logo_base64}" width="250">
         <p>Bienvenida/o. Elige cómo quieres entrar.</p>
     </div>
     """,
