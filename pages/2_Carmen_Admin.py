@@ -41,9 +41,8 @@ def verify_token(token: str):
     except Exception:
         return None
 
-def get_url_token():
-    params = st.query_params
-    return params.get("s", [None])[0]
+def get_url_token() -> str | None:
+    return st.query_params.get("s")
 
 # --- Guard: solo admin con token válido ---
 data = verify_token(get_url_token() or "")
