@@ -88,10 +88,10 @@ def verify_token(token: str):
 
 def set_url_token(token: str):
     # guardamos token en la URL (?s=token)
-    st.experimental_set_query_params(s=token)
+    st.query_params["s"] = token
 
 def get_url_token() -> str | None:
-    params = st.experimental_get_query_params()
+    params = st.query_params
     return params.get("s", [None])[0]
 
 # =======================

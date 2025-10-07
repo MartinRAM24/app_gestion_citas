@@ -42,7 +42,7 @@ def verify_token(token: str):
         return None
 
 def get_url_token():
-    params = st.experimental_get_query_params()
+    params = st.query_params
     return params.get("s", [None])[0]
 
 # --- Guard: solo admin con token válido ---
@@ -339,7 +339,7 @@ if st.button("📨 Enviar recordatorios de mañana", key="btn_wa"):
         st.error(f"No se pudieron enviar los recordatorios: {e}")
 
 if st.button("🚪 Cerrar sesión", key="btn_logout"):
-    st.experimental_set_query_params()  # limpia ?s=
+    st.query_params.clear()  # limpia ?s=
     st.session_state.role = None
     st.session_state.paciente = None
     st.rerun()

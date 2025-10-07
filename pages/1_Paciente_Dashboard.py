@@ -50,7 +50,7 @@ def verify_token(token: str):
 
 # --- Obtiene token desde la URL ---
 def get_url_token():
-    params = st.experimental_get_query_params()
+    params = st.query_params
     return params.get("s", [None])[0]
 
 # --- Validar sesión de paciente ---
@@ -199,7 +199,7 @@ else:
 
 st.divider()
 if st.button("Cerrar sesión"):
-    st.experimental_set_query_params()   # limpia ?s=
+    st.query_params.clear()   # limpia ?s=
     st.session_state.clear()
     st.switch_page("pages/0_Login.py")
 
