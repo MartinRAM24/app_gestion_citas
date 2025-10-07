@@ -127,25 +127,28 @@ with colf:
         st.info("Día no laborable o sin bloques disponibles.")
 
     # ── Paciente: un solo control con buscador integrado ──
-    df_pac = listar_pacientes(None)  # ya filtra solo con teléfono
+    df_pac = listar_pacientes(None)  # trae solo con teléfono
 
-    opciones = [("🔎 Buscar/seleccionar paciente registrado…", None)]
+    # IDs como value reales; 0 = NUEVO
+    values = [0]
+    labels_map = {0: "🔎 Buscar/seleccionar paciente registrado…"}
     if not df_pac.empty:
         for _, r in df_pac.iterrows():
-            tel_v = r.get("telefono") or ""
+            pid = int(r["id"])
+            tel_v = (r.get("telefono") or "")
             tel_txt = f" · {tel_v}" if tel_v else ""
-            label = f"{r['nombre']}{tel_txt} · (ID {int(r['id'])})"
-            opciones.append((label, int(r["id"])))
+            labels_map[pid] = f"{r['nombre']}{tel_txt} · (ID {pid})"
+            values.append(pid)
 
-    labels = [o[0] for o in opciones]
-    sel_label = st.selectbox(
+    sel_val = st.selectbox(
         "Paciente (puedes escribir para buscar)",
-        labels,
+        options=values,
         index=0,
         key="pac_sel",
+        format_func=lambda v: labels_map.get(v, "—"),
         help="Escribe parte del nombre o teléfono para filtrar. Si lo dejas en la primera opción, crea uno nuevo abajo."
     )
-    sel_id = dict(opciones).get(sel_label, None)
+    sel_id = None if sel_val == 0 else sel_val
 
     # Prefill si seleccionaste un paciente
     nombre_def, tel_def = "", ""
@@ -156,7 +159,7 @@ with colf:
             nombre_def = r0.get("nombre") or ""
             tel_def    = r0.get("telefono") or ""
 
-    # Campos SIEMPRE fuera del if (para que existan en nuevo/seleccionado)
+    # Campos SIEMPRE visibles (nuevo o seleccionado)
     nombre_nuevo = st.text_input(
         "Nombre del paciente (si es nuevo)",
         value=nombre_def,
@@ -189,7 +192,7 @@ with colf:
             try:
                 h = datetime.strptime(slot, "%H:%M").time()
                 if sel_id is not None:
-                    # Paciente registrado
+                    # Paciente registrado (ID real)
                     crear_cita_para_paciente(fecha_sel, h, sel_id, _s(nota) or None)
                 else:
                     # Nuevo paciente (tel opcional)
@@ -200,8 +203,8 @@ with colf:
                         fecha_sel,
                         h,
                         _s(nombre_nuevo),
-                        _s(tel),              # "" si vacío (seguro)
-                        _s(nota) or None      # guarda NULL si vacío
+                        _s(tel),              # "" si vacío
+                        _s(nota) or None      # NULL si vacío
                     )
                 st.success("Cita creada.")
                 st.rerun()
@@ -268,33 +271,33 @@ with colr:
             except Exception as e:
                 st.error(f"No se pudo eliminar la cita: {e}")
 
+# --------- RECORDATORIOS WHATSAPP (CITAS DE MAÑANA) ----------
+from modules.core import enviar_recordatorios_manana
 
-    # --------- RECORDATORIOS WHATSAPP (CITAS DE MAÑANA) ----------
-    from modules.core import enviar_recordatorios_manana
+st.divider()
+st.subheader("🔔 Recordatorios de WhatsApp (citas de mañana)")
 
-    st.divider()
-    st.subheader("🔔 Recordatorios de WhatsApp (citas de mañana)")
+colA, colB = st.columns([1, 3])
+with colA:
+    dry = st.checkbox("Modo simulación (no envía)", value=True, key="dry_wa")
 
-    colA, colB = st.columns([1, 3])
-    with colA:
-        dry = st.checkbox("Modo simulación (no envía)", value=True, key="dry_wa")
-
-    if st.button("📨 Enviar recordatorios de mañana", key="btn_wa"):
-        try:
-            res = enviar_recordatorios_manana(dry_run=dry)
-            if res["total"] == 0:
-                st.info("No hay citas para mañana.")
-            else:
-                st.success(f"Procesadas: {res['total']} • Enviados: {res['enviados']} • Fallidos: {res['fallidos']}")
-                st.dataframe(pd.DataFrame(res["detalles"]), use_container_width=True, hide_index=True)
-        except KeyError:
-            st.error("Faltan credenciales de WhatsApp en Secrets.")
-        except Exception as e:
-            st.error(f"No se pudieron enviar los recordatorios: {e}")
+if st.button("📨 Enviar recordatorios de mañana", key="btn_wa"):
+    try:
+        res = enviar_recordatorios_manana(dry_run=dry)
+        if res["total"] == 0:
+            st.info("No hay citas para mañana.")
+        else:
+            st.success(f"Procesadas: {res['total']} • Enviados: {res['enviados']} • Fallidos: {res['fallidos']}")
+            st.dataframe(pd.DataFrame(res["detalles"]), use_container_width=True, hide_index=True)
+    except KeyError:
+        st.error("Faltan credenciales de WhatsApp en Secrets.")
+    except Exception as e:
+        st.error(f"No se pudieron enviar los recordatorios: {e}")
 
 # Cerrar sesión
 if st.button("🚪 Cerrar sesión", key="btn_logout"):
     st.session_state.role = None
     st.session_state.paciente = None
     st.rerun()
+
 
