@@ -50,6 +50,9 @@ data = verify_token(get_url_token() or "")
 if not data or data.get("role") != "admin":
     st.switch_page("pages/0_Login.py")
 
+st.session_state.role = "admin"
+st.session_state.paciente = None
+
 
 st.set_page_config(page_title="Carmen — Panel", page_icon="🗂️", layout="wide")
 

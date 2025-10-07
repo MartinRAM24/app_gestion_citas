@@ -58,6 +58,13 @@ data = verify_token(get_url_token() or "")
 if not data or data.get("role") != "paciente":
     st.switch_page("pages/0_Login.py")
 
+st.session_state.role = "paciente"
+st.session_state.paciente = {
+    "id": data.get("id"),
+    "nombre": data.get("nombre"),
+    "telefono": data.get("tel"),
+}
+
 st.set_page_config(page_title="Paciente — Agenda", page_icon="📅", layout="wide")
 
 CUSTOM_CSS = """

@@ -91,8 +91,8 @@ def set_url_token(token: str):
     st.query_params["s"] = token
 
 def get_url_token() -> str | None:
-    params = st.query_params
-    return params.get("s", [None])[0]
+    return st.query_params.get("s")
+
 
 # =======================
 # Branding (tu logo)
@@ -113,9 +113,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# =======================
-# 1) Intentar restaurar sesión desde la URL
-# =======================
 tok = get_url_token()
 if tok:
     data = verify_token(tok)
@@ -124,30 +121,17 @@ if tok:
         if role == "admin":
             st.session_state.role = "admin"
             st.session_state.paciente = None
-            st.switch_page("pages/2_Carmen_Admin.py")
+            st.switch_page("Carmen — Panel")   # usa el título registrado en Home.py
+            st.stop()                          # <— IMPORTANTE
         elif role == "paciente":
-            # payload mínimo para el dashboard
             st.session_state.role = "paciente"
             st.session_state.paciente = {
                 "id": data.get("id"),
                 "nombre": data.get("nombre"),
                 "telefono": data.get("tel"),
             }
-            st.switch_page("pages/1_Paciente_Dashboard.py")
-
-# =======================
-# 2) Estado base (si no hay token válido)
-# =======================
-st.session_state.setdefault("role", None)
-st.session_state.setdefault("paciente", None)
-
-# Redirección si ya hay sesión en memoria (fallback)
-role = st.session_state.get("role")
-if role == "admin":
-    st.switch_page("pages/2_Carmen_Admin.py")
-elif role == "paciente" and st.session_state.get("paciente"):
-    st.switch_page("pages/1_Paciente_Dashboard.py")
-
+            st.switch_page("Paciente — Agenda")  # usa el título registrado
+            st.stop()
 # =======================
 # Tabs (incluye redes)
 # =======================
@@ -163,12 +147,12 @@ with tab_coach:
         ok = st.form_submit_button("Entrar como Coach")
     if ok:
         if p and is_admin_ok("Carmen", p):
-            # emitimos token y lo ponemos en URL
             token = issue_token("admin", {"role": "admin"})
-            set_url_token(token)
+            st.query_params["s"] = token
             st.session_state.role = "admin"
             st.session_state.paciente = None
-            st.rerun()
+            st.switch_page("Carmen — Panel")
+            st.stop()
         else:
             st.error("Credenciales inválidas.")
 
@@ -185,18 +169,19 @@ with tab_pac:
         if ok:
             user = login_paciente(tel, pw)
             if user:
-                # user esperado: {"id":..., "nombre":..., "telefono": ...}
                 token = issue_token("paciente", {
-                    "id": user.get("id"),
-                    "nombre": user.get("nombre"),
-                    "tel": user.get("telefono"),
+                    "id": user["id"],
+                    "nombre": user["nombre"],
+                    "tel": user["telefono"],
                 })
-                set_url_token(token)
+                st.query_params["s"] = token
                 st.session_state.role = "paciente"
                 st.session_state.paciente = user
-                st.rerun()
+                st.switch_page("Paciente — Agenda")
+                st.stop()
             else:
                 st.error("Teléfono o contraseña incorrectos.")
+
     else:
         with st.form("form_reg"):
             nombre = st.text_input("Nombre completo")
@@ -215,10 +200,11 @@ with tab_pac:
                 token = issue_token("paciente", {
                     "id": pac["id"], "nombre": pac["nombre"], "tel": pac["telefono"],
                 })
-                set_url_token(token)
+                st.query_params["s"] = token
                 st.session_state.role = "paciente"
                 st.session_state.paciente = pac
-                st.rerun()
+                st.switch_page("Paciente — Agenda")
+                st.stop()
 
 # ---- 📣 Redes
 with tab_social:
