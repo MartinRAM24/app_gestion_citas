@@ -4,6 +4,50 @@ from modules.core import (
     generar_slots, slots_ocupados, agendar_cita_autenticado,
     proxima_cita_paciente, is_fecha_permitida, BLOQUEO_DIAS_MIN
 )
+import base64, hmac, hashlib, json, time
+
+# =============================
+# 🔐 Configuración del secreto
+# =============================
+SECRET = st.secrets.get("APP_AUTH_SECRET") or "dev-secret-please-set"
+
+# --- Utilidad: decodificador seguro Base64URL ---
+def _b64u_decode(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+# --- Verifica el token firmado ---
+def verify_token(token: str):
+    try:
+        body_b64, sig_b64 = token.split(".")
+        body = _b64u_decode(body_b64)
+        sig = _b64u_decode(sig_b64)
+
+        # Recalcular firma
+        calc = hmac.new(SECRET.encode(), body, hashlib.sha256).digest()
+        if not hmac.compare_digest(sig, calc):
+            return None
+
+        # Cuerpo decodificado
+        data = json.loads(body.decode())
+
+        # Expiración
+        if int(time.time()) > int(data.get("exp", 0)):
+            return None
+
+        return data
+    except Exception:
+        return None
+
+# --- Obtiene token desde la URL ---
+def get_url_token():
+    params = st.experimental_get_query_params()
+    return params.get("s", [None])[0]
+
+# --- Validar sesión de paciente ---
+data = verify_token(get_url_token() or "")
+if not data or data.get("role") != "paciente":
+    st.switch_page("pages/0_Login.py")
 
 st.set_page_config(page_title="Paciente — Agenda", page_icon="📅", layout="wide")
 
@@ -145,8 +189,8 @@ else:
             st.error(str(e))
 
 st.divider()
-if st.button("🚪 Cerrar sesión"):
-    st.session_state.role = None
-    st.session_state.paciente = None
-    st.rerun()
+if st.button("Cerrar sesión"):
+    st.experimental_set_query_params()   # limpia ?s=
+    st.session_state.clear()
+    st.switch_page("pages/0_Login.py")
 

@@ -1,4 +1,3 @@
-import streamlit as st
 from datetime import date, datetime
 import pandas as pd
 from modules.core import (
@@ -6,6 +5,39 @@ from modules.core import (
     actualizar_cita, eliminar_cita,
     listar_pacientes, crear_cita_para_paciente
 )
+import streamlit as st
+import base64, hmac, hashlib, json, time
+
+SECRET = st.secrets.get("APP_AUTH_SECRET", "dev-secret-please-set")
+
+def _b64u_decode(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+def verify_token(token: str):
+    try:
+        body_b64, sig_b64 = token.split(".")
+        body = _b64u_decode(body_b64)
+        sig = _b64u_decode(sig_b64)
+        calc = hmac.new(SECRET.encode(), body, hashlib.sha256).digest()
+        if not hmac.compare_digest(sig, calc):
+            return None
+        data = json.loads(body.decode())
+        if int(time.time()) > int(data.get("exp", 0)):
+            return None
+        return data
+    except Exception:
+        return None
+
+def get_url_token():
+    params = st.experimental_get_query_params()
+    return params.get("s", [None])[0]
+
+# --- Guard: solo admin con token válido ---
+data = verify_token(get_url_token() or "")
+if not data or data.get("role") != "admin":
+    st.switch_page("pages/0_Login.py")
+
 
 st.set_page_config(page_title="Carmen — Panel", page_icon="🗂️", layout="wide")
 
@@ -294,8 +326,8 @@ if st.button("📨 Enviar recordatorios de mañana", key="btn_wa"):
     except Exception as e:
         st.error(f"No se pudieron enviar los recordatorios: {e}")
 
-# Cerrar sesión
 if st.button("🚪 Cerrar sesión", key="btn_logout"):
+    st.experimental_set_query_params()  # limpia ?s=
     st.session_state.role = None
     st.session_state.paciente = None
     st.rerun()
