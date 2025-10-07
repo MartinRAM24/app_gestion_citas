@@ -1,7 +1,20 @@
 import base64, hmac, hashlib, json, time, uuid
 from urllib.parse import quote_plus
-import streamlit as st
 from modules.core import is_admin_ok, login_paciente, registrar_paciente, normalize_tel
+import os, streamlit as st
+
+def read_secret(name: str, default: str | None = None) -> str | None:
+    # 1) Railway / entorno: variable de entorno
+    val = os.getenv(name)
+    if val:
+        return val
+    # 2) Opcional: secrets.toml (solo si existe)
+    try:
+        return st.secrets[name]
+    except Exception:
+        return default
+
+SECRET = read_secret("APP_AUTH_SECRET", "dev-secret-please-set")
 
 # =======================
 # Config / Estilos
@@ -31,7 +44,6 @@ st.markdown(f"<style>{CUSTOM_CSS}</style>", unsafe_allow_html=True)
 # =======================
 # Helpers de token firmado (stateless)
 # =======================
-SECRET = st.secrets.get("APP_AUTH_SECRET", "dev-secret-please-set")
 TOKEN_TTL_SECONDS = 60 * 60 * 12  # 12 horas
 
 def _b64u(data: bytes) -> str:

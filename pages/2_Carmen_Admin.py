@@ -5,10 +5,22 @@ from modules.core import (
     actualizar_cita, eliminar_cita,
     listar_pacientes, crear_cita_para_paciente
 )
-import streamlit as st
 import base64, hmac, hashlib, json, time
+import os, streamlit as st
 
-SECRET = st.secrets.get("APP_AUTH_SECRET", "dev-secret-please-set")
+def read_secret(name: str, default: str | None = None) -> str | None:
+    # 1) Railway / entorno: variable de entorno
+    val = os.getenv(name)
+    if val:
+        return val
+    # 2) Opcional: secrets.toml (solo si existe)
+    try:
+        return st.secrets[name]
+    except Exception:
+        return default
+
+SECRET = read_secret("APP_AUTH_SECRET", "dev-secret-please-set")
+
 
 def _b64u_decode(s: str) -> bytes:
     pad = "=" * (-len(s) % 4)

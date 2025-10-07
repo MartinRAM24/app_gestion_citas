@@ -1,15 +1,24 @@
-import streamlit as st
 from datetime import date, datetime, timedelta
 from modules.core import (
     generar_slots, slots_ocupados, agendar_cita_autenticado,
     proxima_cita_paciente, is_fecha_permitida, BLOQUEO_DIAS_MIN
 )
 import base64, hmac, hashlib, json, time
+import os, streamlit as st
 
-# =============================
-# 🔐 Configuración del secreto
-# =============================
-SECRET = st.secrets.get("APP_AUTH_SECRET") or "dev-secret-please-set"
+def read_secret(name: str, default: str | None = None) -> str | None:
+    # 1) Railway / entorno: variable de entorno
+    val = os.getenv(name)
+    if val:
+        return val
+    # 2) Opcional: secrets.toml (solo si existe)
+    try:
+        return st.secrets[name]
+    except Exception:
+        return default
+
+SECRET = read_secret("APP_AUTH_SECRET", "dev-secret-please-set")
+
 
 # --- Utilidad: decodificador seguro Base64URL ---
 def _b64u_decode(s: str) -> bytes:
