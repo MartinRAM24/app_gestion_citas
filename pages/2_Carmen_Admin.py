@@ -43,11 +43,14 @@ def verify_token(token: str):
 
 def get_url_token() -> str | None:
     return st.query_params.get("s")
-#
+
 # --- Guard: solo admin con token válido ---
 data = verify_token(get_url_token() or "")
 if not data or data.get("role") != "admin":
-    st.switch_page("pages/0_Login.py")
+    st.session_state.role = None
+    st.session_state.paciente = None
+    st.query_params.clear()   # opcional pero recomendado para quitar ?s=
+    st.rerun()
 
 st.session_state.role = "admin"
 st.session_state.paciente = None
@@ -150,7 +153,10 @@ h1, h2, h3, h4 { color: #111827; }
 st.markdown(f"<style>{CUSTOM_CSS}</style>", unsafe_allow_html=True)
 
 if st.session_state.get("role") != "admin":
-    st.switch_page("pages/0_Login.py")
+    st.session_state.role = None
+    st.session_state.paciente = None
+    st.query_params.clear()
+    st.rerun()
 
 st.title("🗂️ Panel de Carmen")
 

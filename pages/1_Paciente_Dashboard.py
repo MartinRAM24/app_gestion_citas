@@ -55,7 +55,9 @@ def get_url_token() -> str | None:
 # --- Validar sesión de paciente ---
 data = verify_token(get_url_token() or "")
 if not data or data.get("role") != "paciente":
-    st.switch_page("pages/0_Login.py")
+    st.session_state.clear()
+    st.query_params.clear()
+    st.rerun()
 
 st.session_state.role = "paciente"
 st.session_state.paciente = {
@@ -164,7 +166,9 @@ h1, h2, h3, h4 { color: #111827; }
 st.markdown(f"<style>{CUSTOM_CSS}</style>", unsafe_allow_html=True)
 
 if st.session_state.get("role") != "paciente" or not st.session_state.get("paciente"):
-    st.switch_page("pages/0_Login.py")
+    st.session_state.clear()
+    st.query_params.clear()
+    st.rerun()
 
 p = st.session_state.paciente
 pid = int(p["id"])
@@ -205,7 +209,6 @@ else:
 
 st.divider()
 if st.button("Cerrar sesión"):
-    st.query_params.clear()   # limpia ?s=
+    st.query_params.clear()
     st.session_state.clear()
-    st.switch_page("pages/0_Login.py")
-
+    st.rerun()

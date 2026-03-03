@@ -123,8 +123,7 @@ if tok:
         if role == "admin":
             st.session_state.role = "admin"
             st.session_state.paciente = None
-            st.switch_page("pages/2_Carmen_Admin.py")   # usa el título registrado en Home.py
-            st.stop()                          # <— IMPORTANTE
+            st.rerun()                        # <— IMPORTANTE
         elif role == "paciente":
             st.session_state.role = "paciente"
             st.session_state.paciente = {
@@ -132,8 +131,7 @@ if tok:
                 "nombre": data.get("nombre"),
                 "telefono": data.get("tel"),
             }
-            st.switch_page("pages/1_Paciente_Dashboard.py")  # usa el título registrado
-            st.stop()
+            st.rerun()
 # =======================
 # Tabs (incluye redes)
 # =======================
@@ -153,8 +151,7 @@ with tab_coach:
             st.query_params["s"] = token
             st.session_state.role = "admin"
             st.session_state.paciente = None
-            st.switch_page("pages/2_Carmen_Admin.py")
-            st.stop()
+            st.rerun()
         else:
             st.error("Credenciales inválidas.")
 
@@ -179,8 +176,7 @@ with tab_pac:
                 st.query_params["s"] = token
                 st.session_state.role = "paciente"
                 st.session_state.paciente = user
-                st.switch_page("pages/1_Paciente_Dashboard.py")
-                st.stop()
+                st.rerun()
             else:
                 st.error("Teléfono o contraseña incorrectos.")
 
@@ -205,8 +201,7 @@ with tab_pac:
                 st.query_params["s"] = token
                 st.session_state.role = "paciente"
                 st.session_state.paciente = pac
-                st.switch_page("pages/1_Paciente_Dashboard.py")
-                st.stop()
+                st.rerun()
 #
 # ---- 📣 Redes
 with tab_social:

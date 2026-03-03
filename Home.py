@@ -111,11 +111,11 @@ adm_panel = st.Page("pages/2_Carmen_Admin.py",       title="Carmen — Panel",  
 
 role = st.session_state.get("role")
 
-# El "home" SIEMPRE va incluido en el nav activo
+# Cuando hay sesión, NO incluimos home para que entre directo al panel correcto
 if role == "paciente":
-    nav = st.navigation([home, pac_dash])
+    nav = st.navigation([pac_dash])
 elif role == "admin":
-    nav = st.navigation([home, adm_panel])
+    nav = st.navigation([adm_panel])
 else:
     nav = st.navigation([home])
 #
