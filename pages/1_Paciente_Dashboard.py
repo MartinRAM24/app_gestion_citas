@@ -1,26 +1,11 @@
-from datetime import date, datetime, timedelta
-
 import streamlit as st
-
+from datetime import date, datetime, timedelta
 from modules.core import (
-    BLOQUEO_DIAS_MIN,
-    agendar_cita_autenticado,
-    generar_slots,
-    is_fecha_permitida,
-    proxima_cita_paciente,
-    slots_ocupados,
+    generar_slots, slots_ocupados, agendar_cita_autenticado,
+    proxima_cita_paciente, is_fecha_permitida, BLOQUEO_DIAS_MIN
 )
 
 st.set_page_config(page_title="Paciente — Agenda", page_icon="📅", layout="wide")
-
-# --- Guard: requiere sesión de paciente ---
-if st.session_state.get("role") != "paciente" or not st.session_state.get("paciente"):
-    st.session_state.role = None
-    st.session_state.paciente = None
-    try:
-        st.switch_page("pages/0_Login.py")
-    except Exception:
-        st.rerun()
 
 CUSTOM_CSS = """
 /* Sidebar */
@@ -43,18 +28,20 @@ section[data-testid="stSidebarNav"] { background: transparent; }
 
 /* ===== Expanders: gris medio agradable ===== */
 div[data-testid="stExpander"] > details {
-  background: #2B2F36 !important;
+  background: #2B2F36 !important;       /* panel cerrado */
   border: 1px solid #3A3F47 !important;
   border-radius: 12px !important;
 }
-div[data-testid="stExpander"] > details[open] { background: #2F343C !important; }
+div[data-testid="stExpander"] > details[open] {
+  background: #2F343C !important;       /* panel abierto */
+}
 div[data-testid="stExpander"] summary {
-  background: #2B2F36 !important;
+  background: #2B2F36 !important;       /* tira del header */
   color: #EAECEF !important;
   border-radius: 12px !important;
 }
 
-/* ===== Inputs ===== */
+/* ===== Inputs en gris (texto/number/textarea/select/date/time/multiselect) ===== */
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
 [data-testid="stTextArea"] textarea,
@@ -62,6 +49,7 @@ div[data-testid="stExpander"] summary {
 [data-testid="stTimeInput"] input,
 [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
 [data-testid="stMultiSelect"] div[role="combobox"],
+/* file uploader caja */
 [data-testid="stFileUploader"] section[data-testid="stFileDropzone"] {
   background: #2F3136 !important;
   color: #F5F6F7 !important;
@@ -69,7 +57,7 @@ div[data-testid="stExpander"] summary {
   border-radius: 10px !important;
 }
 
-/* Placeholders */
+/* Placeholders más claros */
 [data-testid="stTextInput"] input::placeholder,
 [data-testid="stNumberInput"] input::placeholder,
 [data-testid="stTextArea"] textarea::placeholder,
@@ -85,6 +73,8 @@ div[data-baseweb="popover"] div[role="listbox"] {
   border: 1px solid #4A4D55 !important;
 }
 
+
+
 /* Botones primarios */
 button[kind="primary"] {
   background: #800020 !important;
@@ -98,14 +88,24 @@ button[kind="primary"]:hover { filter: brightness(0.9); }
 a, .stLinkButton button { color: #7B1E3C !important; }
 
 /* DataFrames */
-.stDataFrame div[data-testid="stTable"] { border-radius: 10px; overflow: hidden; }
+.stDataFrame div[data-testid="stTable"] {
+  border-radius: 10px;
+  overflow: hidden;
+}
 
-div[data-baseweb="notification"] { background-color: #800020 !important; color: #FFFFFF !important; }
+div[data-baseweb="notification"] {
+  background-color: #800020 !important; 
+  color: #FFFFFF !important;
+}
 
 /* Encabezados */
 h1, h2, h3, h4 { color: #111827; }
 """
+
 st.markdown(f"<style>{CUSTOM_CSS}</style>", unsafe_allow_html=True)
+
+if st.session_state.get("role") != "paciente" or not st.session_state.get("paciente"):
+    st.switch_page("pages/0_Login.py")
 
 p = st.session_state.paciente
 pid = int(p["id"])
@@ -145,10 +145,8 @@ else:
             st.error(str(e))
 
 st.divider()
-if st.button("Cerrar sesión"):
+if st.button("🚪 Cerrar sesión"):
     st.session_state.role = None
     st.session_state.paciente = None
-    try:
-        st.switch_page("pages/0_Login.py")
-    except Exception:
-        st.rerun()
+    st.rerun()
+

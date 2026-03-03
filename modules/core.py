@@ -1,73 +1,25 @@
-# modules/core.py — DB + lógica común
-import os, re, base64, hashlib, hmac, secrets
+# modules/core.py — DB + lógica común (tomado de tu archivo único)
+import os, re, bcrypt
 from typing import Optional
 from datetime import date, datetime, timedelta, time
 import pandas as pd
-from contextlib import contextmanager
-
-# ---- Driver Postgres (compat: psycopg v3 o psycopg2) ----
-_PG_DRIVER = None
-try:
-    import psycopg  # type: ignore
-    from psycopg import errors as pg_errors  # type: ignore
-    _PG_DRIVER = "psycopg"
-except Exception:  # pragma: no cover
-    psycopg = None  # type: ignore
-    pg_errors = None  # type: ignore
-    try:
-        import psycopg2  # type: ignore
-        import psycopg2.errors as pg_errors  # type: ignore
-        _PG_DRIVER = "psycopg2"
-    except Exception:
-        psycopg2 = None  # type: ignore
-        pg_errors = None  # type: ignore
+import psycopg
+from psycopg import errors as pg_errors
 import streamlit as st
 import requests
-from datetime import time as dt_time
 
-# ---- bcrypt opcional (en py3.13 a veces falla instalar) ----
-try:
-    import bcrypt  # type: ignore
-except Exception:  # pragma: no cover
-    bcrypt = None  # type: ignore
-
-# --- helpers seguros para secrets ---
-def _sget(key: str, default=None):
-    try:
-        # Streamlit: si existe secrets.toml lo usa; si no, lanza excepción
-        return st.secrets.get(key, default)
-    except Exception:
-        return default
-
-def _sget_block(block: str) -> dict:
-    try:
-        return dict(st.secrets.get(block, {}))
-    except Exception:
-        return {}
 
 # ---------- Config ----------
 HORA_INICIO: time = time(9, 0)
 HORA_FIN:    time = time(17, 0)
 PASO_MIN:    int  = 30
-BLOQUEO_DIAS_MIN: int = 2
+BLOQUEO_DIAS_MIN: int = 2   # hoy/mañana bloqueados → pacientes desde día 3
 
-# Prioriza ENV (Railway) y luego secrets (Streamlit)
-NEON_URL = os.getenv("NEON_DATABASE_URL") or _sget("NEON_DATABASE_URL")
+NEON_URL = st.secrets.get("NEON_DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
+ADMIN_USER = os.getenv("ADMIN_USER") or st.secrets.get("CARMEN_USER", "carmen")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or st.secrets.get("CARMEN_PASSWORD")
 
-ADMIN_USER = (
-    os.getenv("ADMIN_USER")
-    or os.getenv("CARMEN_USER")
-    or _sget("ADMIN_USER")
-    or _sget("CARMEN_USER", "carmen")
-)
-ADMIN_PASSWORD = (
-    os.getenv("ADMIN_PASSWORD")
-    or os.getenv("CARMEN_PASSWORD")
-    or _sget("ADMIN_PASSWORD")
-    or _sget("CARMEN_PASSWORD")
-)
-
-PEPPER = (os.getenv("PASSWORD_PEPPER") or _sget("PASSWORD_PEPPER", "") or "").encode()
+PEPPER = (st.secrets.get("PASSWORD_PEPPER") or os.getenv("PASSWORD_PEPPER") or "").encode()
 
 def normalize_tel(t: str) -> str:
     return re.sub(r'[-\s]+', '', t.strip().lower())
@@ -75,39 +27,12 @@ def normalize_tel(t: str) -> str:
 def _peppered(pw: str) -> bytes:
     return (pw.encode() + PEPPER) if PEPPER else pw.encode()
 
-# --- Password hashing sin dependencias nativas ---
-# Formato: pbkdf2$<iters>$<salt_b64>$<dk_b64>
-_PBKDF2_ITERS = 210_000
-
-def _b64e(b: bytes) -> str:
-    return base64.urlsafe_b64encode(b).decode().rstrip("=")
-
-def _b64d(s: str) -> bytes:
-    pad = "=" * (-len(s) % 4)
-    return base64.urlsafe_b64decode(s + pad)
-
 def hash_password(pw: str) -> str:
-    salt = secrets.token_bytes(16)
-    dk = hashlib.pbkdf2_hmac("sha256", _peppered(pw), salt, _PBKDF2_ITERS)
-    return f"pbkdf2${_PBKDF2_ITERS}${_b64e(salt)}${_b64e(dk)}"
+    return bcrypt.hashpw(_peppered(pw), bcrypt.gensalt()).decode()
 
 def check_password(pw: str, pw_hash: str) -> bool:
     try:
-        # Compat con hashes viejos bcrypt si existieran
-        if pw_hash.startswith("$2"):
-            if bcrypt is None:
-                return False
-            return bool(bcrypt.checkpw(_peppered(pw), pw_hash.encode()))
-
-        if pw_hash.startswith("pbkdf2$"):
-            _, iters_s, salt_s, dk_s = pw_hash.split("$", 3)
-            iters = int(iters_s)
-            salt = _b64d(salt_s)
-            dk_expected = _b64d(dk_s)
-            dk = hashlib.pbkdf2_hmac("sha256", _peppered(pw), salt, iters)
-            return hmac.compare_digest(dk, dk_expected)
-
-        return False
+        return bcrypt.checkpw(_peppered(pw), pw_hash.encode())
     except Exception:
         return False
 
@@ -118,41 +43,15 @@ def is_admin_ok(user: str, pw: str) -> bool:
 @st.cache_resource
 def _connect():
     if not NEON_URL:
-        st.error("Falta configurar NEON_DATABASE_URL (ENV o Secrets).")
+        st.error("Falta configurar NEON_DATABASE_URL en Secrets.")
         st.stop()
-
-    if _PG_DRIVER is None:
-        st.error("Falta driver Postgres. Instala 'psycopg2-binary' o 'psycopg[binary]'.")
-        st.stop()
-
-    # Importante: timeout para que un query no congele
-    if _PG_DRIVER == "psycopg":
-        c = psycopg.connect(  # type: ignore
-            NEON_URL,
-            autocommit=True,
-            connect_timeout=10,
-            options="-c statement_timeout=10000",
-        )
-    else:
-        c = psycopg2.connect(  # type: ignore
-            NEON_URL,
-            connect_timeout=10,
-            options="-c statement_timeout=10000",
-        )
-        c.autocommit = True
-
-    # Inicializa esquema una sola vez por instancia
-    cur = c.cursor()
-    cur.execute(SCHEMA_SQL)
-    cur.close()
-
-    return c
+    return psycopg.connect(NEON_URL, autocommit=True)
 
 def conn():
     c = _connect()
     try:
         if getattr(c, "closed", False):
-            raise Exception("closed")
+            raise psycopg.OperationalError("closed")
         with c.cursor() as cur:
             cur.execute("SELECT 1")
     except Exception:
@@ -211,6 +110,9 @@ CREATE INDEX IF NOT EXISTS idx_citas_fecha ON citas(fecha);
 
 def ensure_schema():
     exec_sql(SCHEMA_SQL)
+
+# Ejecuta al importar
+ensure_schema()
 
 # ---------- Lógica agenda ----------
 def _fmt_fecha(v) -> str:
@@ -353,37 +255,43 @@ def eliminar_cita(cita_id: int) -> int:
 
 # ========== WHATSAPP / RECORDATORIOS ==========
 
-def _get_whatsapp_cfg() -> dict:
-    """
-    1) ENV (Railway): WHATSAPP_TOKEN / _PHONE_NUMBER_ID / _TEMPLATE / _LANG
-    2) secrets.toml (Streamlit): [whatsapp] TOKEN / PHONE_NUMBER_ID / TEMPLATE / LANG
-    """
-    env_cfg = {
-        "TOKEN": os.getenv("WHATSAPP_TOKEN"),
-        "PHONE_NUMBER_ID": os.getenv("WHATSAPP_PHONE_NUMBER_ID"),
-        "TEMPLATE": os.getenv("WHATSAPP_TEMPLATE"),
-        "LANG": os.getenv("WHATSAPP_LANG"),
-    }
-    # Si en ENV ya está completo, úsalo
-    if env_cfg["TOKEN"] and env_cfg["PHONE_NUMBER_ID"] and env_cfg["TEMPLATE"]:
-        env_cfg["LANG"] = env_cfg["LANG"] or "es_MX"
-        return env_cfg
+def citas_manana():
+    """Citas de mañana (fecha = hoy + 1) con datos de paciente."""
+    return query_df(
+        """
+        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota,
+               p.id AS paciente_id, p.nombre, p.telefono
+        FROM citas c
+        JOIN pacientes p ON p.id = c.paciente_id
+        WHERE c.fecha = CURRENT_DATE + INTERVAL '1 day'
+        ORDER BY c.hora
+        """
+    )
 
-    # Si no, intenta secrets.toml
-    sec = _sget_block("whatsapp")
-    return {
-        "TOKEN": sec.get("TOKEN"),
-        "PHONE_NUMBER_ID": sec.get("PHONE_NUMBER_ID"),
-        "TEMPLATE": sec.get("TEMPLATE"),
-        "LANG": sec.get("LANG", "es_MX"),
-    }
+def _fmt_fecha_es(v) -> str:
+    try: return pd.to_datetime(v).strftime("%d/%m/%Y")
+    except Exception: return str(v)
+
+def _fmt_hora_es(v) -> str:
+    try: return pd.to_datetime(str(v)).strftime("%H:%M")
+    except Exception: return str(v)
+
+def _to_e164_mx(tel: str) -> str | None:
+    """Normaliza teléfonos a E.164 (+52XXXXXXXXXX si recibe 10 dígitos de MX)."""
+    if not tel: return None
+    t = re.sub(r"\D+", "", str(tel))
+    if not t: return None
+    if str(tel).startswith("+"):
+        return str(tel)
+    if t.startswith("52"):
+        return f"+{t}"
+    if len(t) == 10:
+        return f"+52{t}"
+    return None
 
 def _wa_send_meta(to_e164: str, nombre: str, fecha_txt: str, hora_txt: str):
-    cfg = _get_whatsapp_cfg()
-    missing = [k for k in ("TOKEN", "PHONE_NUMBER_ID", "TEMPLATE") if not cfg.get(k)]
-    if missing:
-        raise RuntimeError(f"Config WhatsApp incompleta (falta: {', '.join(missing)}).")
-
+    """Envía mensaje por plantilla (WhatsApp Cloud API / Meta)."""
+    cfg = st.secrets["whatsapp"]
     url = f"https://graph.facebook.com/v19.0/{cfg['PHONE_NUMBER_ID']}/messages"
     headers = {
         "Authorization": f"Bearer {cfg['TOKEN']}",
@@ -408,41 +316,6 @@ def _wa_send_meta(to_e164: str, nombre: str, fecha_txt: str, hora_txt: str):
     r = requests.post(url, headers=headers, json=payload, timeout=15)
     r.raise_for_status()
     return r.json()
-
-
-def _fmt_fecha_es(v) -> str:
-    try: return pd.to_datetime(v).strftime("%d/%m/%Y")
-    except Exception: return str(v)
-
-def _fmt_hora_es(v) -> str:
-    try: return pd.to_datetime(str(v)).strftime("%H:%M")
-    except Exception: return str(v)
-
-def _to_e164_mx(tel: str) -> str | None:
-    """Normaliza teléfonos a E.164 (+52XXXXXXXXXX si recibe 10 dígitos de MX)."""
-    if not tel: return None
-    t = re.sub(r"\D+", "", str(tel))
-    if not t: return None
-    if str(tel).startswith("+"):
-        return str(tel)
-    if t.startswith("52"):
-        return f"+{t}"
-    if len(t) == 10:
-        return f"+52{t}"
-    return None
-
-def citas_manana():
-    """Citas de mañana (fecha = hoy + 1) con datos de paciente."""
-    return query_df(
-        """
-        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota,
-               p.id AS paciente_id, p.nombre, p.telefono
-        FROM citas c
-        JOIN pacientes p ON p.id = c.paciente_id
-        WHERE c.fecha = CURRENT_DATE + INTERVAL '1 day'
-        ORDER BY c.hora
-        """
-    )
 
 def enviar_recordatorios_manana(dry_run: bool = False) -> dict:
     """
@@ -490,65 +363,3 @@ def enviar_recordatorios_manana(dry_run: bool = False) -> dict:
         res["detalles"].append(item)
 
     return res
-
-# Asegúrate de tener ya NEON_URL definido en este módulo
-# NEON_URL = st.secrets.get("NEON_DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
-
-def _tel_norm(s: str | None) -> str | None:
-    if not s:
-        return None
-    return re.sub(r"\D", "", s)
-
-def listar_pacientes(q: str | None = None, limit: int = 100, solo_con_telefono: bool = True) -> pd.DataFrame:
-    tel_ok = "regexp_replace(coalesce(telefono,''), '\\D', '', 'g') <> ''"
-    base_where = f"WHERE {tel_ok}" if solo_con_telefono else "WHERE TRUE"
-
-    if q:
-        q_name = f"%{q.strip()}%"
-        q_tel  = _tel_norm(q)
-        if q_tel:
-            return query_df(
-                f"""
-                SELECT id, nombre, telefono
-                FROM pacientes
-                {base_where}
-                  AND (lower(nombre) ILIKE lower(%s)
-                       OR regexp_replace(coalesce(telefono,''), '\\D', '', 'g') LIKE %s)
-                ORDER BY nombre
-                LIMIT %s
-                """,
-                (q_name, f"%{q_tel}%", limit),
-            )
-        else:
-            return query_df(
-                f"""
-                SELECT id, nombre, telefono
-                FROM pacientes
-                {base_where}
-                  AND lower(nombre) ILIKE lower(%s)
-                ORDER BY nombre
-                LIMIT %s
-                """,
-                (q_name, limit),
-            )
-    else:
-        return query_df(
-            f"""
-            SELECT id, nombre, telefono
-            FROM pacientes
-            {base_where}
-            ORDER BY nombre
-            LIMIT %s
-            """,
-            (limit,),
-        )
-
-
-def crear_cita_para_paciente(fecha: date, hora: dt_time, paciente_id: int, nota: str | None = None) -> int:
-    with conn().cursor() as cur:
-        cur.execute("SELECT nombre, telefono FROM pacientes WHERE id = %s", (paciente_id,))
-        row = cur.fetchone()
-        if not row:
-            raise ValueError("Paciente no encontrado.")
-        nombre, telefono = row
-    return crear_cita_manual(fecha, hora, nombre, telefono, nota)
