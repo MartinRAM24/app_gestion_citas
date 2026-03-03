@@ -119,10 +119,15 @@ if tok:
     data = verify_token(tok)
     if data:
         role = data.get("role")
+
+        # MUY IMPORTANTE: elimina el token de la URL para evitar loop de rerun
+        st.query_params.clear()
+
         if role == "admin":
             st.session_state.role = "admin"
             st.session_state.paciente = None
-            st.rerun()                        # <— IMPORTANTE
+            st.rerun()
+
         elif role == "paciente":
             st.session_state.role = "paciente"
             st.session_state.paciente = {
