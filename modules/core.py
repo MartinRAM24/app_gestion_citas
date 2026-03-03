@@ -71,7 +71,20 @@ def _connect():
     if not NEON_URL:
         st.error("Falta configurar NEON_DATABASE_URL (ENV o Secrets).")
         st.stop()
-    return psycopg.connect(NEON_URL, autocommit=True, connect_timeout=10)
+
+    # Importante: statement timeout para que un query no congele
+    c = psycopg.connect(
+        NEON_URL,
+        autocommit=True,
+        connect_timeout=10,
+        options="-c statement_timeout=10000"  # 10s por query
+    )
+
+    # Inicializa esquema una sola vez por instancia
+    with c.cursor() as cur:
+        cur.execute(SCHEMA_SQL)
+
+    return c
 
 def conn():
     c = _connect()
@@ -136,9 +149,6 @@ CREATE INDEX IF NOT EXISTS idx_citas_fecha ON citas(fecha);
 
 def ensure_schema():
     exec_sql(SCHEMA_SQL)
-
-# Ejecuta al importar
-ensure_schema()
 
 # ---------- Lógica agenda ----------
 def _fmt_fecha(v) -> str:
