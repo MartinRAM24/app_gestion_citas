@@ -5,9 +5,16 @@ from datetime import date, datetime, timedelta, time
 import pandas as pd
 import psycopg
 from psycopg import errors as pg_errors
+from psycopg import OperationalError
 import streamlit as st
 import requests
 
+
+def _get_secret(key: str, default=None):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
 
 # ---------- Config ----------
 HORA_INICIO: time = time(9, 0)
@@ -15,11 +22,11 @@ HORA_FIN:    time = time(17, 0)
 PASO_MIN:    int  = 30
 BLOQUEO_DIAS_MIN: int = 2   # hoy/mañana bloqueados → pacientes desde día 3
 
-NEON_URL = st.secrets.get("NEON_DATABASE_URL") or os.getenv("NEON_DATABASE_URL")
-ADMIN_USER = os.getenv("ADMIN_USER") or st.secrets.get("CARMEN_USER", "carmen")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or st.secrets.get("CARMEN_PASSWORD")
+NEON_URL = os.getenv("NEON_DATABASE_URL") or _get_secret("NEON_DATABASE_URL")
+ADMIN_USER = os.getenv("ADMIN_USER") or _get_secret("CARMEN_USER", "carmen")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or _get_secret("CARMEN_PASSWORD")
 
-PEPPER = (st.secrets.get("PASSWORD_PEPPER") or os.getenv("PASSWORD_PEPPER") or "").encode()
+PEPPER = (os.getenv("PASSWORD_PEPPER") or _get_secret("PASSWORD_PEPPER") or "").encode()
 
 def normalize_tel(t: str) -> str:
     return re.sub(r'[-\s]+', '', t.strip().lower())
@@ -43,9 +50,13 @@ def is_admin_ok(user: str, pw: str) -> bool:
 @st.cache_resource
 def _connect():
     if not NEON_URL:
-        st.error("Falta configurar NEON_DATABASE_URL en Secrets.")
+        st.error("Falta configurar NEON_DATABASE_URL (env o Streamlit secrets).")
         st.stop()
-    return psycopg.connect(NEON_URL, autocommit=True)
+    try:
+        return psycopg.connect(NEON_URL, autocommit=True)
+    except OperationalError as e:
+        st.error(f"No se pudo conectar a PostgreSQL/Neon: {e}")
+        st.stop()
 
 def conn():
     c = _connect()
@@ -100,10 +111,13 @@ CREATE TABLE IF NOT EXISTS citas (
   fecha DATE NOT NULL,
   hora TIME NOT NULL,
   paciente_id INTEGER REFERENCES pacientes(id) ON DELETE SET NULL,
+  servicio TEXT,
   nota TEXT,
   creado_en TIMESTAMP DEFAULT now(),
   UNIQUE (fecha, hora)
 );
+
+ALTER TABLE citas ADD COLUMN IF NOT EXISTS servicio TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_citas_fecha ON citas(fecha);
 """
@@ -126,7 +140,7 @@ def _fmt_hora(v) -> str:
 def proxima_cita_paciente(paciente_id: int):
     return query_df(
         """
-        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota
+        SELECT c.id AS id_cita, c.fecha, c.hora, c.servicio, c.nota
         FROM citas c
         WHERE c.paciente_id = %s
           AND (c.fecha > CURRENT_DATE OR (c.fecha = CURRENT_DATE AND c.hora >= CURRENT_TIME))
@@ -139,12 +153,15 @@ def proxima_cita_paciente(paciente_id: int):
 def registrar_paciente(nombre: str, telefono: str, password: str) -> int:
     tel = normalize_tel(telefono)
     pw_hash = hash_password(password)
-    with conn().cursor() as cur:
-        cur.execute(
-            "INSERT INTO pacientes (nombre, telefono, password_hash) VALUES (%s, %s, %s) RETURNING id",
-            (nombre.strip(), tel, pw_hash),
-        )
-        pid = cur.fetchone()[0]
+    try:
+        with conn().cursor() as cur:
+            cur.execute(
+                "INSERT INTO pacientes (nombre, telefono, password_hash) VALUES (%s, %s, %s) RETURNING id",
+                (nombre.strip(), tel, pw_hash),
+            )
+            pid = cur.fetchone()[0]
+    except pg_errors.UniqueViolation:
+        raise ValueError("Ese teléfono ya está registrado. Inicia sesión.")
     try: st.cache_data.clear()
     except Exception: pass
     return int(pid)
@@ -202,15 +219,15 @@ def slots_ocupados(fecha: date) -> set:
     df = query_df("SELECT hora FROM citas WHERE fecha=%s ORDER BY hora", (fecha,))
     return set(df["hora"].tolist())
 
-def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, nota: Optional[str] = None):
+def agendar_cita_autenticado(fecha: date, hora: time, paciente_id: int, servicio: str, nota: Optional[str] = None):
     assert is_fecha_permitida(fecha), "La fecha seleccionada no está permitida (mínimo día 3)."
     if ya_tiene_cita_en_dia(paciente_id, fecha):
         raise ValueError("Ya tienes una cita ese día. Solo se permite una por día.")
     if ya_tiene_cita_en_ventana_7dias(paciente_id, fecha):
         raise ValueError("Solo se permite una cita cada 7 días (respecto a la fecha elegida).")
     try:
-        exec_sql("INSERT INTO citas(fecha, hora, paciente_id, nota) VALUES (%s,%s,%s,%s)",
-                 (fecha, hora, paciente_id, nota))
+        exec_sql("INSERT INTO citas(fecha, hora, paciente_id, servicio, nota) VALUES (%s,%s,%s,%s,%s)",
+                 (fecha, hora, paciente_id, servicio.strip(), nota))
     except pg_errors.UniqueViolation:
         raise ValueError("Ese horario ya fue tomado. Elige otro.")
 
@@ -226,24 +243,24 @@ def crear_o_encontrar_paciente(nombre: str, telefono: str) -> int:
     except Exception: pass
     return int(new_id)
 
-def crear_cita_manual(fecha: date, hora: time, nombre: str, telefono: str, nota: Optional[str] = None):
+def crear_cita_manual(fecha: date, hora: time, nombre: str, telefono: str, servicio: str, nota: Optional[str] = None):
     pid = crear_o_encontrar_paciente(nombre, telefono)
-    exec_sql("INSERT INTO citas(fecha, hora, paciente_id, nota) VALUES (%s,%s,%s,%s)",
-             (fecha, hora, pid, nota))
+    exec_sql("INSERT INTO citas(fecha, hora, paciente_id, servicio, nota) VALUES (%s,%s,%s,%s,%s)",
+             (fecha, hora, pid, servicio.strip(), nota))
 
 def citas_por_dia(fecha: date):
     return query_df(
         """
-        SELECT c.id AS id_cita, c.fecha, c.hora, p.id AS paciente_id, p.nombre, p.telefono, c.nota
+        SELECT c.id AS id_cita, c.fecha, c.hora, p.id AS paciente_id, p.nombre, p.telefono, c.servicio, c.nota
         FROM citas c LEFT JOIN pacientes p ON p.id=c.paciente_id
         WHERE c.fecha=%s ORDER BY c.hora
         """,
         (fecha,),
     )
 
-def actualizar_cita(cita_id: int, nombre: str, telefono: str, nota: Optional[str]):
+def actualizar_cita(cita_id: int, nombre: str, telefono: str, servicio: str, nota: Optional[str]):
     pid = crear_o_encontrar_paciente(nombre, telefono)
-    exec_sql("UPDATE citas SET paciente_id=%s, nota=%s WHERE id=%s", (pid, nota, cita_id))
+    exec_sql("UPDATE citas SET paciente_id=%s, servicio=%s, nota=%s WHERE id=%s", (pid, servicio.strip(), nota, cita_id))
 
 def eliminar_cita(cita_id: int) -> int:
     with conn().cursor() as cur:
@@ -253,13 +270,28 @@ def eliminar_cita(cita_id: int) -> int:
     except Exception: pass
     return n
 
+
+
+def ultima_cita_agendada():
+    """Devuelve la última cita creada (la más reciente por creado_en)."""
+    return query_df_fresh(
+        """
+        SELECT c.id AS id_cita, c.creado_en, c.fecha, c.hora, c.servicio, c.nota,
+               p.nombre, p.telefono
+        FROM citas c
+        LEFT JOIN pacientes p ON p.id = c.paciente_id
+        ORDER BY c.creado_en DESC, c.id DESC
+        LIMIT 1
+        """
+    )
+
 # ========== WHATSAPP / RECORDATORIOS ==========
 
 def citas_manana():
     """Citas de mañana (fecha = hoy + 1) con datos de paciente."""
     return query_df(
         """
-        SELECT c.id AS id_cita, c.fecha, c.hora, c.nota,
+        SELECT c.id AS id_cita, c.fecha, c.hora, c.servicio, c.nota,
                p.id AS paciente_id, p.nombre, p.telefono
         FROM citas c
         JOIN pacientes p ON p.id = c.paciente_id

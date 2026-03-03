@@ -1,5 +1,5 @@
 import streamlit as st
-from modules.core import is_admin_ok, login_paciente, registrar_paciente, normalize_tel
+from modules.core import is_admin_ok, login_paciente, registrar_paciente, normalize_tel, ADMIN_USER
 import base64
 from urllib.parse import quote_plus
 
@@ -37,7 +37,7 @@ st.markdown(
     f"""
     <div style="text-align: center;">
         <img src="data:image/png;base64,{logo_base64}" width="300">
-        <p>Bienvenida/o. Elige cómo quieres entrar.</p>
+        <p>Bienvenida/o al salón de belleza. Elige cómo quieres entrar.</p>
     </div>
     """,
     unsafe_allow_html=True
@@ -59,17 +59,17 @@ elif role == "paciente" and st.session_state.get("paciente"):
 # =========================
 ENABLE_SOCIAL = False   # cambia a True si lo quieres activar
 
-tab_coach, tab_pac, tab_social = st.tabs(["👩‍⚕️ Coach", "🧑 Paciente", "📣 Redes"])
+tab_coach, tab_pac, tab_social = st.tabs(["👩‍💼 Dueña", "💅 Cliente", "📣 Redes"])
 
 # ---- Coach
 with tab_coach:
-    st.subheader("Carmen (Coach)")
+    st.subheader("Acceso de administradora")
     with st.form("form_admin"):
-        st.text_input("Usuario", value="Carmen", disabled=True)
+        st.text_input("Usuario", value=(ADMIN_USER or "admin"), disabled=True)
         p = st.text_input("Contraseña", type="password")
-        ok = st.form_submit_button("Entrar como Coach")
+        ok = st.form_submit_button("Entrar como administradora")
     if ok:
-        if p and is_admin_ok("Carmen", p):
+        if p and is_admin_ok((ADMIN_USER or "admin"), p):
             st.session_state.role = "admin"
             st.rerun()
         else:
@@ -77,7 +77,7 @@ with tab_coach:
 
 # ---- Paciente
 with tab_pac:
-    st.subheader("Paciente")
+    st.subheader("Cliente")
     modo = st.radio("Cuenta", ["Iniciar sesión", "Registrarme"], horizontal=True, key="pac_modo")
 
     if modo == "Iniciar sesión":
@@ -106,12 +106,15 @@ with tab_pac:
             elif pw1 != pw2:
                 st.error("Las contraseñas no coinciden.")
             else:
-                pid = registrar_paciente(nombre, tel, pw1)
-                st.session_state.role = "paciente"
-                st.session_state.paciente = {
-                    "id": pid, "nombre": nombre.strip(), "telefono": normalize_tel(tel)
-                }
-                st.rerun()
+                try:
+                    pid = registrar_paciente(nombre, tel, pw1)
+                    st.session_state.role = "paciente"
+                    st.session_state.paciente = {
+                        "id": pid, "nombre": nombre.strip(), "telefono": normalize_tel(tel)
+                    }
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
 
 # ---- 📣 Redes (a la derecha)
 with tab_social:

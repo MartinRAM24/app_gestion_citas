@@ -3,10 +3,10 @@ from datetime import date, datetime
 import pandas as pd
 from modules.core import (
     generar_slots, crear_cita_manual, citas_por_dia,
-    actualizar_cita, eliminar_cita
+    actualizar_cita, eliminar_cita, ultima_cita_agendada
 )
 
-st.set_page_config(page_title="Carmen — Panel", page_icon="🗂️", layout="wide")
+st.set_page_config(page_title="Dueña — Panel", page_icon="🗂️", layout="wide")
 
 CUSTOM_CSS = """
 /* Sidebar */
@@ -108,7 +108,18 @@ st.markdown(f"<style>{CUSTOM_CSS}</style>", unsafe_allow_html=True)
 if st.session_state.get("role") != "admin":
     st.switch_page("pages/0_Login.py")
 
-st.title("🗂️ Panel de Carmen")
+SERVICIOS = ["Corte", "Coloración", "Manicure", "Pedicure", "Peinado", "Tratamiento capilar", "Maquillaje", "Depilación"]
+
+st.title("🗂️ Panel de administración")
+
+ult_df = ultima_cita_agendada()
+if not ult_df.empty:
+    ult = ult_df.iloc[0]
+    etiqueta = f"{ult['nombre'] or 'Cliente'} • {ult['fecha']} {str(ult['hora'])[:5]} • {ult.get('servicio') or 'Sin servicio'}"
+    if st.session_state.get("last_seen_booking_id") != int(ult["id_cita"]):
+        st.toast(f"Nueva cita agendada: {etiqueta}", icon="🔔")
+        st.session_state.last_seen_booking_id = int(ult["id_cita"])
+    st.info(f"Última cita agendada: {etiqueta}")
 
 colf, colr = st.columns([1, 2], gap="large")
 
@@ -122,6 +133,7 @@ with colf:
 
     nombre = st.text_input("Nombre paciente")
     tel    = st.text_input("Teléfono")
+    servicio = st.selectbox("Servicio", SERVICIOS)
     nota   = st.text_area("Nota (opcional)")
 
     if st.button("➕ Crear cita"):
@@ -130,7 +142,7 @@ with colf:
         elif not (nombre.strip() and tel.strip()):
             st.error("Nombre y teléfono son obligatorios.")
         else:
-            crear_cita_manual(fecha_sel, datetime.strptime(slot, "%H:%M").time(), nombre, tel, nota or None)
+            crear_cita_manual(fecha_sel, datetime.strptime(slot, "%H:%M").time(), nombre, tel, servicio, nota or None)
             st.success("Cita creada."); st.rerun()
 
 with colr:
@@ -149,7 +161,7 @@ with colr:
 
         show = todos_slots.merge(df_m, on="hora_txt", how="left")
         show["estado"] = show["id_cita"].apply(lambda x: "✅ libre" if pd.isna(x) else "🟡 ocupado")
-        cols = ["hora_txt", "estado", "id_cita", "paciente_id", "nombre", "telefono", "nota"]
+        cols = ["hora_txt", "estado", "id_cita", "paciente_id", "nombre", "telefono", "servicio", "nota"]
         for c in cols:
             if c not in show.columns: show[c] = None
         st.dataframe(show[cols], use_container_width=True)
@@ -166,11 +178,12 @@ with colr:
 
         nombre_e = st.text_input("Nombre", r["nombre"] or "", key="nombre_edit")
         tel_e    = st.text_input("Teléfono", r["telefono"] or "", key="tel_edit")
+        servicio_e = st.selectbox("Servicio", SERVICIOS, index=SERVICIOS.index(r["servicio"]) if r.get("servicio") in SERVICIOS else 0, key="servicio_edit")
         nota_e   = st.text_area("Nota", r["nota"] or "", key="nota_edit")
 
         if st.button("💾 Guardar cambios"):
             if nombre_e.strip() and tel_e.strip():
-                actualizar_cita(int(cid), nombre_e, tel_e, nota_e or None)
+                actualizar_cita(int(cid), nombre_e, tel_e, servicio_e, nota_e or None)
                 st.success("Actualizado."); st.rerun()
             else:
                 st.error("Nombre y teléfono son obligatorios.")
