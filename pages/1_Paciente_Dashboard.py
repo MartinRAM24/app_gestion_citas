@@ -1,80 +1,26 @@
 from datetime import date, datetime, timedelta
+
+import streamlit as st
+
 from modules.core import (
-    generar_slots, slots_ocupados, agendar_cita_autenticado,
-    proxima_cita_paciente, is_fecha_permitida, BLOQUEO_DIAS_MIN,
-    get_app_auth_secret
+    BLOQUEO_DIAS_MIN,
+    agendar_cita_autenticado,
+    generar_slots,
+    is_fecha_permitida,
+    proxima_cita_paciente,
+    slots_ocupados,
 )
-import base64, hmac, hashlib, json, time
-import os, streamlit as st
 
 st.set_page_config(page_title="Paciente — Agenda", page_icon="📅", layout="wide")
 
-SECRET = get_app_auth_secret()
-if not SECRET:
-    st.error("Falta APP_AUTH_SECRET en Railway (Variables).")
-    st.stop()
-
-
-
-# --- Utilidad: decodificador seguro Base64URL ---
-def _b64u_decode(s: str) -> bytes:
-    pad = "=" * (-len(s) % 4)
-    return base64.urlsafe_b64decode(s + pad)
-
-# --- Verifica el token firmado ---
-def verify_token(token: str):
+# --- Guard: requiere sesión de paciente ---
+if st.session_state.get("role") != "paciente" or not st.session_state.get("paciente"):
+    st.session_state.role = None
+    st.session_state.paciente = None
     try:
-        body_b64, sig_b64 = token.split(".")
-        body = _b64u_decode(body_b64)
-        sig = _b64u_decode(sig_b64)
-
-        # Recalcular firma
-        calc = hmac.new(SECRET.encode(), body, hashlib.sha256).digest()
-        if not hmac.compare_digest(sig, calc):
-            return None
-
-        # Cuerpo decodificado
-        data = json.loads(body.decode())
-
-        # Expiración
-        if int(time.time()) > int(data.get("exp", 0)):
-            return None
-
-        return data
+        st.switch_page("pages/0_Login.py")
     except Exception:
-        return None
-
-# --- Obtiene token desde la URL ---
-def get_url_token() -> str | None:
-    return st.query_params.get("s")
-
-def get_any_token() -> str | None:
-    return get_url_token() or st.session_state.get("token")
-#
-# --- Validar sesión de paciente ---
-# 1) Si ya hay sesión, úsala (evita depender del token en la URL)
-if st.session_state.get("role") == "paciente" and st.session_state.get("paciente"):
-    data = st.session_state.get("paciente")
-else:
-    tok = get_any_token() or ""
-    data = verify_token(tok)
-    if not data or data.get("role") != "paciente":
-        st.session_state.clear()
-        st.query_params.clear()
-        try:
-            st.switch_page("pages/0_Login.py")
-        except Exception:
-            st.rerun()
-
-    # Guarda sesión y limpia token de URL (no lo expongas)
-    st.session_state["token"] = tok
-    st.query_params.clear()
-    st.session_state.role = "paciente"
-    st.session_state.paciente = {
-        "id": data.get("id"),
-        "nombre": data.get("nombre"),
-        "telefono": data.get("tel"),
-    }
+        st.rerun()
 
 CUSTOM_CSS = """
 /* Sidebar */
@@ -97,20 +43,18 @@ section[data-testid="stSidebarNav"] { background: transparent; }
 
 /* ===== Expanders: gris medio agradable ===== */
 div[data-testid="stExpander"] > details {
-  background: #2B2F36 !important;       /* panel cerrado */
+  background: #2B2F36 !important;
   border: 1px solid #3A3F47 !important;
   border-radius: 12px !important;
 }
-div[data-testid="stExpander"] > details[open] {
-  background: #2F343C !important;       /* panel abierto */
-}
+div[data-testid="stExpander"] > details[open] { background: #2F343C !important; }
 div[data-testid="stExpander"] summary {
-  background: #2B2F36 !important;       /* tira del header */
+  background: #2B2F36 !important;
   color: #EAECEF !important;
   border-radius: 12px !important;
 }
 
-/* ===== Inputs en gris (texto/number/textarea/select/date/time/multiselect) ===== */
+/* ===== Inputs ===== */
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
 [data-testid="stTextArea"] textarea,
@@ -118,7 +62,6 @@ div[data-testid="stExpander"] summary {
 [data-testid="stTimeInput"] input,
 [data-testid="stSelectbox"] div[data-baseweb="select"] > div,
 [data-testid="stMultiSelect"] div[role="combobox"],
-/* file uploader caja */
 [data-testid="stFileUploader"] section[data-testid="stFileDropzone"] {
   background: #2F3136 !important;
   color: #F5F6F7 !important;
@@ -126,7 +69,7 @@ div[data-testid="stExpander"] summary {
   border-radius: 10px !important;
 }
 
-/* Placeholders más claros */
+/* Placeholders */
 [data-testid="stTextInput"] input::placeholder,
 [data-testid="stNumberInput"] input::placeholder,
 [data-testid="stTextArea"] textarea::placeholder,
@@ -142,8 +85,6 @@ div[data-baseweb="popover"] div[role="listbox"] {
   border: 1px solid #4A4D55 !important;
 }
 
-
-
 /* Botones primarios */
 button[kind="primary"] {
   background: #800020 !important;
@@ -157,26 +98,14 @@ button[kind="primary"]:hover { filter: brightness(0.9); }
 a, .stLinkButton button { color: #7B1E3C !important; }
 
 /* DataFrames */
-.stDataFrame div[data-testid="stTable"] {
-  border-radius: 10px;
-  overflow: hidden;
-}
+.stDataFrame div[data-testid="stTable"] { border-radius: 10px; overflow: hidden; }
 
-div[data-baseweb="notification"] {
-  background-color: #800020 !important; 
-  color: #FFFFFF !important;
-}
+div[data-baseweb="notification"] { background-color: #800020 !important; color: #FFFFFF !important; }
 
 /* Encabezados */
 h1, h2, h3, h4 { color: #111827; }
 """
-
 st.markdown(f"<style>{CUSTOM_CSS}</style>", unsafe_allow_html=True)
-
-if st.session_state.get("role") != "paciente" or not st.session_state.get("paciente"):
-    st.session_state.clear()
-    st.query_params.clear()
-    st.rerun()
 
 p = st.session_state.paciente
 pid = int(p["id"])
@@ -217,6 +146,9 @@ else:
 
 st.divider()
 if st.button("Cerrar sesión"):
-    st.query_params.clear()
-    st.session_state.clear()
-    st.rerun()
+    st.session_state.role = None
+    st.session_state.paciente = None
+    try:
+        st.switch_page("pages/0_Login.py")
+    except Exception:
+        st.rerun()

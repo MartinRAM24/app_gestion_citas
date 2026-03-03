@@ -23,91 +23,51 @@ def _sget_block(block: str) -> dict:
     except Exception:
         return {}
 
-
-# --- Helpers: URL/ENV para Railway/Neon ---
-def get_database_url() -> str | None:
-    """Soporta nombres comunes en Railway/Neon.
-    Preferencia: DATABASE_URL (Railway) > NEON_DATABASE_URL > secrets.
-    Fuerza sslmode=require si no viene especificado (Neon suele requerir SSL).
-    """
-    url = (
-        os.getenv("DATABASE_URL")
-        or os.getenv("NEON_DATABASE_URL")
-        or _sget("DATABASE_URL")
-        or _sget("NEON_DATABASE_URL")
-    )
-    if not url:
-        return None
-    if url.startswith(("postgres://", "postgresql://")) and "sslmode=" not in url:
-        sep = "&" if "?" in url else "?"
-        url = f"{url}{sep}sslmode=require"
-    return url
-
-def get_app_auth_secret() -> str | None:
-    """Secreto para firmar tokens (HMAC). Debe existir en Railway para producción."""
-    return (
-        os.getenv("APP_AUTH_SECRET")
-        or _sget("APP_AUTH_SECRET")
-        or os.getenv("SECRET_KEY")
-        or _sget("SECRET_KEY")
-    )
-
 # ---------- Config ----------
 HORA_INICIO: time = time(9, 0)
 HORA_FIN:    time = time(17, 0)
 PASO_MIN:    int  = 30
 BLOQUEO_DIAS_MIN: int = 2
 
-# Prioriza ENV (Railway) y luego secrets (Streamlit)
-NEON_URL = get_database_url()
+# Variables mínimas requeridas (Railway ENV o Streamlit secrets)
+# - NEON_DATABASE_URL
+# - CARMEN_USER
+# - CARMEN_PASSWORD
+NEON_URL = os.getenv("NEON_DATABASE_URL") or _sget("NEON_DATABASE_URL")
 
-ADMIN_USER = (
-    os.getenv("ADMIN_USER")
-    or os.getenv("CARMEN_USER")
-    or _sget("ADMIN_USER")
-    or _sget("CARMEN_USER", "carmen")
-)
-ADMIN_PASSWORD = (
-    os.getenv("ADMIN_PASSWORD")
-    or os.getenv("CARMEN_PASSWORD")
-    or _sget("ADMIN_PASSWORD")
-    or _sget("CARMEN_PASSWORD")
-)
-
-PEPPER = (os.getenv("PASSWORD_PEPPER") or _sget("PASSWORD_PEPPER", "") or "").encode()
+CARMEN_USER = os.getenv("CARMEN_USER") or _sget("CARMEN_USER", "Carmen")
+CARMEN_PASSWORD = os.getenv("CARMEN_PASSWORD") or _sget("CARMEN_PASSWORD")
 
 def normalize_tel(t: str) -> str:
     return re.sub(r'[-\s]+', '', t.strip().lower())
 
-def _peppered(pw: str) -> bytes:
-    return (pw.encode() + PEPPER) if PEPPER else pw.encode()
-
 def hash_password(pw: str) -> str:
-    return bcrypt.hashpw(_peppered(pw), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+
 
 def check_password(pw: str, pw_hash: str) -> bool:
     try:
-        return bcrypt.checkpw(_peppered(pw), pw_hash.encode())
+        return bcrypt.checkpw(pw.encode(), pw_hash.encode())
     except Exception:
         return False
 
+
 def is_admin_ok(user: str, pw: str) -> bool:
-    return bool(ADMIN_USER and ADMIN_PASSWORD and user == ADMIN_USER and pw == ADMIN_PASSWORD)
+    return bool(CARMEN_USER and CARMEN_PASSWORD and user == CARMEN_USER and pw == CARMEN_PASSWORD)
 
 # ---------- Conexión ----------
 @st.cache_resource
 def _connect():
     if not NEON_URL:
-        st.error("Falta configurar Postgres. En Railway agrega DATABASE_URL o NEON_DATABASE_URL en Variables.")
+        st.error("Falta configurar NEON_DATABASE_URL (ENV o Secrets).")
         st.stop()
 
     # Importante: statement timeout para que un query no congele
     c = psycopg.connect(
         NEON_URL,
-        application_name="citas-streamlit",
         autocommit=True,
         connect_timeout=10,
-        options="-c statement_timeout=10000 -c idle_in_transaction_session_timeout=10000"  # 10s
+        options="-c statement_timeout=10000"  # 10s por query
     )
 
     # Inicializa esquema una sola vez por instancia
@@ -346,6 +306,13 @@ def _get_whatsapp_cfg() -> dict:
         "LANG": sec.get("LANG", "es_MX"),
     }
 
+
+def whatsapp_status() -> tuple[bool, list[str]]:
+    """Devuelve (configurado, faltantes). No obliga a tener WhatsApp para correr la app."""
+    cfg = _get_whatsapp_cfg()
+    missing = [k for k in ("TOKEN", "PHONE_NUMBER_ID", "TEMPLATE") if not cfg.get(k)]
+    return (len(missing) == 0, missing)
+
 def _wa_send_meta(to_e164: str, nombre: str, fecha_txt: str, hora_txt: str):
     cfg = _get_whatsapp_cfg()
     missing = [k for k in ("TOKEN", "PHONE_NUMBER_ID", "TEMPLATE") if not cfg.get(k)]
@@ -417,6 +384,11 @@ def enviar_recordatorios_manana(dry_run: bool = False) -> dict:
     Envía (o simula) recordatorios de WhatsApp para TODAS las citas de mañana.
     Devuelve resumen {"total", "enviados", "fallidos", "detalles":[...]}.
     """
+    if not dry_run:
+        ok, missing = whatsapp_status()
+        if not ok:
+            raise RuntimeError(f"WhatsApp no está configurado (faltan: {', '.join(missing)}).")
+
     df = citas_manana()
     res = {"total": int(len(df)), "enviados": 0, "fallidos": 0, "detalles": []}
     if df.empty:

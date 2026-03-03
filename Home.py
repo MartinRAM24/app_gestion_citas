@@ -1,3 +1,4 @@
+# app.py — Router condicional (requiere Streamlit >= 1.41 para st.Page/st.navigation)
 import streamlit as st
 
 st.set_page_config(page_title="Citas — Carmen", page_icon="🩺", layout="wide")
@@ -102,33 +103,26 @@ st.markdown(f"<style>{CUSTOM_CSS}</style>", unsafe_allow_html=True)
 # Estado base
 st.session_state.setdefault("role", None)
 st.session_state.setdefault("paciente", None)
-st.session_state.setdefault("token", None)
+
+# Define páginas
+home      = st.Page("pages/0_Login.py",              title="Inicio",            icon="🩺")
+pac_dash  = st.Page("pages/1_Paciente_Dashboard.py", title="Paciente — Agenda", icon="📅")
+adm_panel = st.Page("pages/2_Carmen_Admin.py",       title="Carmen — Panel",    icon="🗂️")
 
 role = st.session_state.get("role")
 
-# Router compatible: usa st.Page/st.navigation si existen; si no, cae a switch_page.
-if hasattr(st, "Page") and hasattr(st, "navigation"):
-    home      = st.Page("pages/0_Login.py",              title="Inicio",            icon="🩺")
-    pac_dash  = st.Page("pages/1_Paciente_Dashboard.py", title="Paciente — Agenda", icon="📅")
-    adm_panel = st.Page("pages/2_Carmen_Admin.py",       title="Carmen — Panel",    icon="🗂️")
-
-    if role == "paciente":
-        nav = st.navigation([pac_dash])
-    elif role == "admin":
-        nav = st.navigation([adm_panel])
-    else:
-        nav = st.navigation([home])
-
-    nav.run()
+# Cuando hay sesión, NO incluimos home para que entre directo al panel correcto
+if role == "paciente":
+    nav = st.navigation([pac_dash])
+elif role == "admin":
+    nav = st.navigation([adm_panel])
 else:
-    # Fallback para versiones viejas: redirige a la página correcta.
-    try:
-        if role == "paciente":
-            st.switch_page("pages/1_Paciente_Dashboard.py")
-        elif role == "admin":
-            st.switch_page("pages/2_Carmen_Admin.py")
-        else:
-            st.switch_page("pages/0_Login.py")
-    except Exception:
-        st.info("Tu versión de Streamlit no soporta navegación/redirect. Actualiza Streamlit en requirements.txt.")
-        st.stop()
+    nav = st.navigation([home])
+#
+nav.run()
+
+
+
+
+
+
