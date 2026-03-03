@@ -44,7 +44,7 @@ ADMIN_PASSWORD = (
     or _sget("ADMIN_PASSWORD")
     or _sget("CARMEN_PASSWORD")
 )
-
+#
 PEPPER = (os.getenv("PASSWORD_PEPPER") or _sget("PASSWORD_PEPPER", "") or "").encode()
 
 def normalize_tel(t: str) -> str:

@@ -43,7 +43,7 @@ def verify_token(token: str):
 
 def get_url_token() -> str | None:
     return st.query_params.get("s")
-
+#
 # --- Guard: solo admin con token válido ---
 data = verify_token(get_url_token() or "")
 if not data or data.get("role") != "admin":

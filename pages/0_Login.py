@@ -205,7 +205,7 @@ with tab_pac:
                 st.session_state.paciente = pac
                 st.switch_page("pages/1_Paciente_Dashboard.py")
                 st.stop()
-
+#
 # ---- 📣 Redes
 with tab_social:
     if ENABLE_SOCIAL:

@@ -51,7 +51,7 @@ def verify_token(token: str):
 # --- Obtiene token desde la URL ---
 def get_url_token() -> str | None:
     return st.query_params.get("s")
-
+#
 # --- Validar sesión de paciente ---
 data = verify_token(get_url_token() or "")
 if not data or data.get("role") != "paciente":

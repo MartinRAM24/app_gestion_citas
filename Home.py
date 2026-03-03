@@ -118,7 +118,7 @@ elif role == "admin":
     nav = st.navigation([home, adm_panel])
 else:
     nav = st.navigation([home])
-
+#
 nav.run()
 
 
