@@ -71,7 +71,7 @@ def _connect():
     if not NEON_URL:
         st.error("Falta configurar NEON_DATABASE_URL (ENV o Secrets).")
         st.stop()
-    return psycopg.connect(NEON_URL, autocommit=True)
+    return psycopg.connect(NEON_URL, autocommit=True, connect_timeout=10)
 
 def conn():
     c = _connect()
