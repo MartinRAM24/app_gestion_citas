@@ -1,13 +1,35 @@
 # modules/core.py — DB + lógica común
-import os, re, bcrypt
+import os, re, base64, hashlib, hmac, secrets
 from typing import Optional
 from datetime import date, datetime, timedelta, time
 import pandas as pd
-import psycopg
-from psycopg import errors as pg_errors
+from contextlib import contextmanager
+
+# ---- Driver Postgres (compat: psycopg v3 o psycopg2) ----
+_PG_DRIVER = None
+try:
+    import psycopg  # type: ignore
+    from psycopg import errors as pg_errors  # type: ignore
+    _PG_DRIVER = "psycopg"
+except Exception:  # pragma: no cover
+    psycopg = None  # type: ignore
+    pg_errors = None  # type: ignore
+    try:
+        import psycopg2  # type: ignore
+        import psycopg2.errors as pg_errors  # type: ignore
+        _PG_DRIVER = "psycopg2"
+    except Exception:
+        psycopg2 = None  # type: ignore
+        pg_errors = None  # type: ignore
 import streamlit as st
 import requests
 from datetime import time as dt_time
+
+# ---- bcrypt opcional (en py3.13 a veces falla instalar) ----
+try:
+    import bcrypt  # type: ignore
+except Exception:  # pragma: no cover
+    bcrypt = None  # type: ignore
 
 # --- helpers seguros para secrets ---
 def _sget(key: str, default=None):
@@ -29,31 +51,68 @@ HORA_FIN:    time = time(17, 0)
 PASO_MIN:    int  = 30
 BLOQUEO_DIAS_MIN: int = 2
 
-# Variables mínimas requeridas (Railway ENV o Streamlit secrets)
-# - NEON_DATABASE_URL
-# - CARMEN_USER
-# - CARMEN_PASSWORD
+# Prioriza ENV (Railway) y luego secrets (Streamlit)
 NEON_URL = os.getenv("NEON_DATABASE_URL") or _sget("NEON_DATABASE_URL")
 
-CARMEN_USER = os.getenv("CARMEN_USER") or _sget("CARMEN_USER", "Carmen")
-CARMEN_PASSWORD = os.getenv("CARMEN_PASSWORD") or _sget("CARMEN_PASSWORD")
+ADMIN_USER = (
+    os.getenv("ADMIN_USER")
+    or os.getenv("CARMEN_USER")
+    or _sget("ADMIN_USER")
+    or _sget("CARMEN_USER", "carmen")
+)
+ADMIN_PASSWORD = (
+    os.getenv("ADMIN_PASSWORD")
+    or os.getenv("CARMEN_PASSWORD")
+    or _sget("ADMIN_PASSWORD")
+    or _sget("CARMEN_PASSWORD")
+)
+
+PEPPER = (os.getenv("PASSWORD_PEPPER") or _sget("PASSWORD_PEPPER", "") or "").encode()
 
 def normalize_tel(t: str) -> str:
     return re.sub(r'[-\s]+', '', t.strip().lower())
 
-def hash_password(pw: str) -> str:
-    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+def _peppered(pw: str) -> bytes:
+    return (pw.encode() + PEPPER) if PEPPER else pw.encode()
 
+# --- Password hashing sin dependencias nativas ---
+# Formato: pbkdf2$<iters>$<salt_b64>$<dk_b64>
+_PBKDF2_ITERS = 210_000
+
+def _b64e(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+def _b64d(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+def hash_password(pw: str) -> str:
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", _peppered(pw), salt, _PBKDF2_ITERS)
+    return f"pbkdf2${_PBKDF2_ITERS}${_b64e(salt)}${_b64e(dk)}"
 
 def check_password(pw: str, pw_hash: str) -> bool:
     try:
-        return bcrypt.checkpw(pw.encode(), pw_hash.encode())
+        # Compat con hashes viejos bcrypt si existieran
+        if pw_hash.startswith("$2"):
+            if bcrypt is None:
+                return False
+            return bool(bcrypt.checkpw(_peppered(pw), pw_hash.encode()))
+
+        if pw_hash.startswith("pbkdf2$"):
+            _, iters_s, salt_s, dk_s = pw_hash.split("$", 3)
+            iters = int(iters_s)
+            salt = _b64d(salt_s)
+            dk_expected = _b64d(dk_s)
+            dk = hashlib.pbkdf2_hmac("sha256", _peppered(pw), salt, iters)
+            return hmac.compare_digest(dk, dk_expected)
+
+        return False
     except Exception:
         return False
 
-
 def is_admin_ok(user: str, pw: str) -> bool:
-    return bool(CARMEN_USER and CARMEN_PASSWORD and user == CARMEN_USER and pw == CARMEN_PASSWORD)
+    return bool(ADMIN_USER and ADMIN_PASSWORD and user == ADMIN_USER and pw == ADMIN_PASSWORD)
 
 # ---------- Conexión ----------
 @st.cache_resource
@@ -62,17 +121,30 @@ def _connect():
         st.error("Falta configurar NEON_DATABASE_URL (ENV o Secrets).")
         st.stop()
 
-    # Importante: statement timeout para que un query no congele
-    c = psycopg.connect(
-        NEON_URL,
-        autocommit=True,
-        connect_timeout=10,
-        options="-c statement_timeout=10000"  # 10s por query
-    )
+    if _PG_DRIVER is None:
+        st.error("Falta driver Postgres. Instala 'psycopg2-binary' o 'psycopg[binary]'.")
+        st.stop()
+
+    # Importante: timeout para que un query no congele
+    if _PG_DRIVER == "psycopg":
+        c = psycopg.connect(  # type: ignore
+            NEON_URL,
+            autocommit=True,
+            connect_timeout=10,
+            options="-c statement_timeout=10000",
+        )
+    else:
+        c = psycopg2.connect(  # type: ignore
+            NEON_URL,
+            connect_timeout=10,
+            options="-c statement_timeout=10000",
+        )
+        c.autocommit = True
 
     # Inicializa esquema una sola vez por instancia
-    with c.cursor() as cur:
-        cur.execute(SCHEMA_SQL)
+    cur = c.cursor()
+    cur.execute(SCHEMA_SQL)
+    cur.close()
 
     return c
 
@@ -80,7 +152,7 @@ def conn():
     c = _connect()
     try:
         if getattr(c, "closed", False):
-            raise psycopg.OperationalError("closed")
+            raise Exception("closed")
         with c.cursor() as cur:
             cur.execute("SELECT 1")
     except Exception:
@@ -306,13 +378,6 @@ def _get_whatsapp_cfg() -> dict:
         "LANG": sec.get("LANG", "es_MX"),
     }
 
-
-def whatsapp_status() -> tuple[bool, list[str]]:
-    """Devuelve (configurado, faltantes). No obliga a tener WhatsApp para correr la app."""
-    cfg = _get_whatsapp_cfg()
-    missing = [k for k in ("TOKEN", "PHONE_NUMBER_ID", "TEMPLATE") if not cfg.get(k)]
-    return (len(missing) == 0, missing)
-
 def _wa_send_meta(to_e164: str, nombre: str, fecha_txt: str, hora_txt: str):
     cfg = _get_whatsapp_cfg()
     missing = [k for k in ("TOKEN", "PHONE_NUMBER_ID", "TEMPLATE") if not cfg.get(k)]
@@ -384,11 +449,6 @@ def enviar_recordatorios_manana(dry_run: bool = False) -> dict:
     Envía (o simula) recordatorios de WhatsApp para TODAS las citas de mañana.
     Devuelve resumen {"total", "enviados", "fallidos", "detalles":[...]}.
     """
-    if not dry_run:
-        ok, missing = whatsapp_status()
-        if not ok:
-            raise RuntimeError(f"WhatsApp no está configurado (faltan: {', '.join(missing)}).")
-
     df = citas_manana()
     res = {"total": int(len(df)), "enviados": 0, "fallidos": 0, "detalles": []}
     if df.empty:
