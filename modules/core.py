@@ -23,6 +23,35 @@ def _sget_block(block: str) -> dict:
     except Exception:
         return {}
 
+
+# --- Helpers: URL/ENV para Railway/Neon ---
+def get_database_url() -> str | None:
+    """Soporta nombres comunes en Railway/Neon.
+    Preferencia: DATABASE_URL (Railway) > NEON_DATABASE_URL > secrets.
+    Fuerza sslmode=require si no viene especificado (Neon suele requerir SSL).
+    """
+    url = (
+        os.getenv("DATABASE_URL")
+        or os.getenv("NEON_DATABASE_URL")
+        or _sget("DATABASE_URL")
+        or _sget("NEON_DATABASE_URL")
+    )
+    if not url:
+        return None
+    if url.startswith(("postgres://", "postgresql://")) and "sslmode=" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}sslmode=require"
+    return url
+
+def get_app_auth_secret() -> str | None:
+    """Secreto para firmar tokens (HMAC). Debe existir en Railway para producción."""
+    return (
+        os.getenv("APP_AUTH_SECRET")
+        or _sget("APP_AUTH_SECRET")
+        or os.getenv("SECRET_KEY")
+        or _sget("SECRET_KEY")
+    )
+
 # ---------- Config ----------
 HORA_INICIO: time = time(9, 0)
 HORA_FIN:    time = time(17, 0)
@@ -30,7 +59,7 @@ PASO_MIN:    int  = 30
 BLOQUEO_DIAS_MIN: int = 2
 
 # Prioriza ENV (Railway) y luego secrets (Streamlit)
-NEON_URL = os.getenv("NEON_DATABASE_URL") or _sget("NEON_DATABASE_URL")
+NEON_URL = get_database_url()
 
 ADMIN_USER = (
     os.getenv("ADMIN_USER")
@@ -69,15 +98,16 @@ def is_admin_ok(user: str, pw: str) -> bool:
 @st.cache_resource
 def _connect():
     if not NEON_URL:
-        st.error("Falta configurar NEON_DATABASE_URL (ENV o Secrets).")
+        st.error("Falta configurar Postgres. En Railway agrega DATABASE_URL o NEON_DATABASE_URL en Variables.")
         st.stop()
 
     # Importante: statement timeout para que un query no congele
     c = psycopg.connect(
         NEON_URL,
+        application_name="citas-streamlit",
         autocommit=True,
         connect_timeout=10,
-        options="-c statement_timeout=10000"  # 10s por query
+        options="-c statement_timeout=10000 -c idle_in_transaction_session_timeout=10000"  # 10s
     )
 
     # Inicializa esquema una sola vez por instancia

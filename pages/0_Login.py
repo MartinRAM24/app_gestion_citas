@@ -1,21 +1,14 @@
 import base64, hmac, hashlib, json, time, uuid
 from urllib.parse import quote_plus
-from modules.core import is_admin_ok, login_paciente, registrar_paciente, normalize_tel
+from modules.core import is_admin_ok, login_paciente, registrar_paciente, normalize_tel, get_app_auth_secret, ADMIN_USER
 import os, streamlit as st
 
 
-def read_secret(name: str, default: str | None = None) -> str | None:
-    # 1) Railway / entorno: variable de entorno
-    val = os.getenv(name)
-    if val:
-        return val
-    # 2) Opcional: secrets.toml (solo si existe)
-    try:
-        return st.secrets[name]
-    except Exception:
-        return default
+SECRET = get_app_auth_secret()
+if not SECRET:
+    st.error("Falta APP_AUTH_SECRET en Railway (Variables). Es obligatorio para iniciar sesión en producción.")
+    st.stop()
 
-SECRET = read_secret("APP_AUTH_SECRET", "dev-secret-please-set")
 
 # =======================
 # Config / Estilos
@@ -95,6 +88,10 @@ def get_url_token() -> str | None:
     return st.query_params.get("s")
 
 
+def get_any_token() -> str | None:
+    return get_url_token() or st.session_state.get("token")
+
+
 # =======================
 # Branding (tu logo)
 # =======================
@@ -114,13 +111,14 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tok = get_url_token()
+tok = get_any_token()
 if tok:
     data = verify_token(tok)
     if data:
         role = data.get("role")
 
         # MUY IMPORTANTE: elimina el token de la URL para evitar loop de rerun
+        st.session_state["token"] = tok
         st.query_params.clear()
 
         if role == "admin":
@@ -146,16 +144,20 @@ tab_coach, tab_pac, tab_social = st.tabs(["👩‍⚕️ Coach", "🧑 Paciente"
 with tab_coach:
     st.subheader("Carmen (Coach)")
     with st.form("form_admin"):
-        st.text_input("Usuario", value="Carmen", disabled=True)
+        u = st.text_input("Usuario", value=(ADMIN_USER or "carmen"))
         p = st.text_input("Contraseña", type="password")
         ok = st.form_submit_button("Entrar como Coach")
     if ok:
-        if p and is_admin_ok("Carmen", p):
+        if u and p and is_admin_ok(u, p):
             token = issue_token("admin", {"role": "admin"})
-            st.query_params["s"] = token
+            st.session_state["token"] = token
             st.session_state.role = "admin"
             st.session_state.paciente = None
-            st.rerun()
+            st.query_params.clear()
+            try:
+                st.switch_page("pages/2_Carmen_Admin.py")
+            except Exception:
+                st.rerun()
         else:
             st.error("Credenciales inválidas.")
 
@@ -177,10 +179,14 @@ with tab_pac:
                     "nombre": user["nombre"],
                     "tel": user["telefono"],
                 })
-                st.query_params["s"] = token
+                st.session_state["token"] = token
                 st.session_state.role = "paciente"
                 st.session_state.paciente = user
-                st.rerun()
+                st.query_params.clear()
+                try:
+                    st.switch_page("pages/1_Paciente_Dashboard.py")
+                except Exception:
+                    st.rerun()
             else:
                 st.error("Teléfono o contraseña incorrectos.")
 
@@ -202,10 +208,14 @@ with tab_pac:
                 token = issue_token("paciente", {
                     "id": pac["id"], "nombre": pac["nombre"], "tel": pac["telefono"],
                 })
-                st.query_params["s"] = token
+                st.session_state["token"] = token
                 st.session_state.role = "paciente"
                 st.session_state.paciente = pac
-                st.rerun()
+                st.query_params.clear()
+                try:
+                    st.switch_page("pages/1_Paciente_Dashboard.py")
+                except Exception:
+                    st.rerun()
 #
 # ---- 📣 Redes
 with tab_social:

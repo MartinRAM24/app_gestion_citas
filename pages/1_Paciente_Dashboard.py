@@ -1,25 +1,19 @@
 from datetime import date, datetime, timedelta
 from modules.core import (
     generar_slots, slots_ocupados, agendar_cita_autenticado,
-    proxima_cita_paciente, is_fecha_permitida, BLOQUEO_DIAS_MIN
+    proxima_cita_paciente, is_fecha_permitida, BLOQUEO_DIAS_MIN,
+    get_app_auth_secret
 )
 import base64, hmac, hashlib, json, time
 import os, streamlit as st
 
 st.set_page_config(page_title="Paciente — Agenda", page_icon="📅", layout="wide")
 
-def read_secret(name: str, default: str | None = None) -> str | None:
-    # 1) Railway / entorno: variable de entorno
-    val = os.getenv(name)
-    if val:
-        return val
-    # 2) Opcional: secrets.toml (solo si existe)
-    try:
-        return st.secrets[name]
-    except Exception:
-        return default
+SECRET = get_app_auth_secret()
+if not SECRET:
+    st.error("Falta APP_AUTH_SECRET en Railway (Variables).")
+    st.stop()
 
-SECRET = read_secret("APP_AUTH_SECRET", "dev-secret-please-set")
 
 
 # --- Utilidad: decodificador seguro Base64URL ---
@@ -53,20 +47,34 @@ def verify_token(token: str):
 # --- Obtiene token desde la URL ---
 def get_url_token() -> str | None:
     return st.query_params.get("s")
+
+def get_any_token() -> str | None:
+    return get_url_token() or st.session_state.get("token")
 #
 # --- Validar sesión de paciente ---
-data = verify_token(get_url_token() or "")
-if not data or data.get("role") != "paciente":
-    st.session_state.clear()
-    st.query_params.clear()
-    st.rerun()
+# 1) Si ya hay sesión, úsala (evita depender del token en la URL)
+if st.session_state.get("role") == "paciente" and st.session_state.get("paciente"):
+    data = st.session_state.get("paciente")
+else:
+    tok = get_any_token() or ""
+    data = verify_token(tok)
+    if not data or data.get("role") != "paciente":
+        st.session_state.clear()
+        st.query_params.clear()
+        try:
+            st.switch_page("pages/0_Login.py")
+        except Exception:
+            st.rerun()
 
-st.session_state.role = "paciente"
-st.session_state.paciente = {
-    "id": data.get("id"),
-    "nombre": data.get("nombre"),
-    "telefono": data.get("tel"),
-}
+    # Guarda sesión y limpia token de URL (no lo expongas)
+    st.session_state["token"] = tok
+    st.query_params.clear()
+    st.session_state.role = "paciente"
+    st.session_state.paciente = {
+        "id": data.get("id"),
+        "nombre": data.get("nombre"),
+        "telefono": data.get("tel"),
+    }
 
 CUSTOM_CSS = """
 /* Sidebar */

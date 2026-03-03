@@ -7,21 +7,15 @@ from modules.core import (
 )
 import base64, hmac, hashlib, json, time
 import os, streamlit as st
+from modules.core import get_app_auth_secret
 
 st.set_page_config(page_title="Carmen — Panel", page_icon="🗂️", layout="wide")
 
-def read_secret(name: str, default: str | None = None) -> str | None:
-    # 1) Railway / entorno: variable de entorno
-    val = os.getenv(name)
-    if val:
-        return val
-    # 2) Opcional: secrets.toml (solo si existe)
-    try:
-        return st.secrets[name]
-    except Exception:
-        return default
+SECRET = get_app_auth_secret()
+if not SECRET:
+    st.error("Falta APP_AUTH_SECRET en Railway (Variables).")
+    st.stop()
 
-SECRET = read_secret("APP_AUTH_SECRET", "dev-secret-please-set")
 
 
 def _b64u_decode(s: str) -> bytes:
@@ -46,13 +40,27 @@ def verify_token(token: str):
 def get_url_token() -> str | None:
     return st.query_params.get("s")
 
-# --- Guard: solo admin con token válido ---
-data = verify_token(get_url_token() or "")
-if not data or data.get("role") != "admin":
-    st.session_state.role = None
-    st.session_state.paciente = None
-    st.query_params.clear()   # opcional pero recomendado para quitar ?s=
-    st.rerun()
+
+def get_any_token() -> str | None:
+    return get_url_token() or st.session_state.get("token")
+
+# --- Guard: solo admin con sesión o token válido ---
+if st.session_state.get("role") == "admin":
+    data = {"role": "admin"}
+else:
+    tok = get_any_token() or ""
+    data = verify_token(tok)
+    if not data or data.get("role") != "admin":
+        st.session_state.role = None
+        st.session_state.paciente = None
+        st.query_params.clear()
+        try:
+            st.switch_page("pages/0_Login.py")
+        except Exception:
+            st.rerun()
+
+    st.session_state["token"] = tok
+    st.query_params.clear()
 
 st.session_state.role = "admin"
 st.session_state.paciente = None
@@ -347,9 +355,10 @@ if st.button("📨 Enviar recordatorios de mañana", key="btn_wa"):
         st.error(f"No se pudieron enviar los recordatorios: {e}")
 
 if st.button("🚪 Cerrar sesión", key="btn_logout"):
-    st.query_params.clear()  # limpia ?s=
-    st.session_state.role = None
-    st.session_state.paciente = None
-    st.rerun()
-
+    st.query_params.clear()
+    st.session_state.clear()
+    try:
+        st.switch_page("pages/0_Login.py")
+    except Exception:
+        st.rerun()
 
