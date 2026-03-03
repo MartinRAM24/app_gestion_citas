@@ -8,6 +8,8 @@ from modules.core import (
 import base64, hmac, hashlib, json, time
 import os, streamlit as st
 
+st.set_page_config(page_title="Carmen — Panel", page_icon="🗂️", layout="wide")
+
 def read_secret(name: str, default: str | None = None) -> str | None:
     # 1) Railway / entorno: variable de entorno
     val = os.getenv(name)
@@ -55,8 +57,6 @@ if not data or data.get("role") != "admin":
 st.session_state.role = "admin"
 st.session_state.paciente = None
 
-
-st.set_page_config(page_title="Carmen — Panel", page_icon="🗂️", layout="wide")
 
 CUSTOM_CSS = """
 /* Sidebar */

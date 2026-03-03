@@ -428,60 +428,55 @@ def _tel_norm(s: str | None) -> str | None:
     return re.sub(r"\D", "", s)
 
 def listar_pacientes(q: str | None = None, limit: int = 100, solo_con_telefono: bool = True) -> pd.DataFrame:
-    """
-    Devuelve (id, nombre, telefono) desde pacientes.
-    Por defecto, SOLO incluye pacientes con teléfono no vacío.
-    """
     tel_ok = "regexp_replace(coalesce(telefono,''), '\\D', '', 'g') <> ''"
     base_where = f"WHERE {tel_ok}" if solo_con_telefono else "WHERE TRUE"
 
-    with psycopg.connect(NEON_URL) as con:
-        if q:
-            q_name = f"%{q.strip()}%"
-            q_tel  = _tel_norm(q)
-            if q_tel:
-                sql = f"""
-                    SELECT id, nombre, telefono
-                    FROM pacientes
-                    {base_where}
-                      AND (lower(nombre) ILIKE lower(%s)
-                           OR regexp_replace(coalesce(telefono,''), '\\D', '', 'g') LIKE %s)
-                    ORDER BY nombre
-                    LIMIT %s
-                """
-                return pd.read_sql(sql, con, params=[q_name, f"%{q_tel}%", limit])
-            else:
-                sql = f"""
-                    SELECT id, nombre, telefono
-                    FROM pacientes
-                    {base_where}
-                      AND lower(nombre) ILIKE lower(%s)
-                    ORDER BY nombre
-                    LIMIT %s
-                """
-                return pd.read_sql(sql, con, params=[q_name, limit])
-        else:
-            sql = f"""
+    if q:
+        q_name = f"%{q.strip()}%"
+        q_tel  = _tel_norm(q)
+        if q_tel:
+            return query_df(
+                f"""
                 SELECT id, nombre, telefono
                 FROM pacientes
                 {base_where}
+                  AND (lower(nombre) ILIKE lower(%s)
+                       OR regexp_replace(coalesce(telefono,''), '\\D', '', 'g') LIKE %s)
                 ORDER BY nombre
                 LIMIT %s
-            """
-            return pd.read_sql(sql, con, params=[limit])
+                """,
+                (q_name, f"%{q_tel}%", limit),
+            )
+        else:
+            return query_df(
+                f"""
+                SELECT id, nombre, telefono
+                FROM pacientes
+                {base_where}
+                  AND lower(nombre) ILIKE lower(%s)
+                ORDER BY nombre
+                LIMIT %s
+                """,
+                (q_name, limit),
+            )
+    else:
+        return query_df(
+            f"""
+            SELECT id, nombre, telefono
+            FROM pacientes
+            {base_where}
+            ORDER BY nombre
+            LIMIT %s
+            """,
+            (limit,),
+        )
 
 
 def crear_cita_para_paciente(fecha: date, hora: dt_time, paciente_id: int, nota: str | None = None) -> int:
-    """
-    Busca nombre/teléfono del paciente y llama a crear_cita_manual para insertar la cita.
-    Retorna id_cita creado (o lanza excepción).
-    """
-    with psycopg.connect(NEON_URL, autocommit=True) as con:
-        with con.cursor() as cur:
-            cur.execute("SELECT nombre, telefono FROM pacientes WHERE id = %s", (paciente_id,))
-            row = cur.fetchone()
-            if not row:
-                raise ValueError("Paciente no encontrado.")
-            nombre, telefono = row
-            # reutiliza tu función existente:
-            return crear_cita_manual(fecha, hora, nombre, telefono, nota)
+    with conn().cursor() as cur:
+        cur.execute("SELECT nombre, telefono FROM pacientes WHERE id = %s", (paciente_id,))
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("Paciente no encontrado.")
+        nombre, telefono = row
+    return crear_cita_manual(fecha, hora, nombre, telefono, nota)
