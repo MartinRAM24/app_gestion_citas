@@ -37,8 +37,11 @@ st.session_state.setdefault("role", None)
 st.session_state.setdefault("paciente", None)
 
 # Si ya hay sesión, deja que Home.py enrute
-if st.session_state.get("role") in ("admin", "paciente"):
-    st.rerun()
+role = st.session_state.get("role")
+if role == "admin":
+    st.switch_page("pages/2_Carmen_Admin.py")
+elif role == "paciente":
+    st.switch_page("pages/1_Paciente_Dashboard.py")
 
 # =======================
 # Branding (logo)
