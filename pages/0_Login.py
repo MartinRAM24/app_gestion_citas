@@ -1,7 +1,9 @@
 import base64, hmac, hashlib, json, time, uuid
 from urllib.parse import quote_plus
 from modules.core import is_admin_ok, login_paciente, registrar_paciente, normalize_tel
-import os, streamlit as st
+import os, glob, streamlit as st
+st.write("CWD:", os.getcwd())
+st.write("pages/*.py:", glob.glob("pages/*.py"))
 
 def read_secret(name: str, default: str | None = None) -> str | None:
     # 1) Railway / entorno: variable de entorno
